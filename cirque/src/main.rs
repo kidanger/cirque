@@ -8,7 +8,7 @@ use std::{path::PathBuf, str::FromStr};
 use anyhow::{anyhow, Ok};
 
 fn main() -> Result<(), anyhow::Error> {
-    let config_path = PathBuf::from_str("default.yml")?;
+    let config_path = PathBuf::from_str("assets/default.yml")?;
     let c = config::Config::new(&config_path)?;
 
     let mut certs = None;
@@ -40,7 +40,7 @@ fn main() -> Result<(), anyhow::Error> {
         let len = conn.reader().read(&mut buf)?;
         println!("Received message from client: {:?}", &buf[..len]);
 
-        return Ok(());
+        Ok(())
     }
     else {
         Err(anyhow!("Config incomplete"))

@@ -13,23 +13,25 @@ impl Config {
         let docs = YamlLoader::load_from_str(string.as_str())?;
         let doc = &docs[0];
         // Debug support
-        println!("{:?}", doc);
+        println!("{:?}", doc); 
 
         // Index access for map & array
         let tls_cert = doc["tls"]["cert"].as_str();
-        let tls_key = doc["tls"]["cert"].as_str();
+        let tls_key = doc["tls"]["key"].as_str();
 
-        let path_tls_cert = tls_cert
-            .map(|s| PathBuf::from_str(s))
-            .map_or(None, |r| Some(r.unwrap()));
+        let mut cert_file_path : Option<PathBuf> = None;
+        if let Some(tls_cert) = tls_cert {
+            cert_file_path = Some(PathBuf::from_str(tls_cert)?);
+        }
 
-        let private_key_file_path = tls_key
-            .map(|s| PathBuf::from_str(s))
-            .map_or(None, |r| Some(r.unwrap()));
+        let mut private_key_file_path : Option<PathBuf> = None;
+        if let Some(tls_key) = tls_key {
+            private_key_file_path = Some(PathBuf::from_str(tls_key)?);
+        }
 
         Ok(Self {
-            cert_file_path: path_tls_cert,
-            private_key_file_path: private_key_file_path,
+            cert_file_path,
+            private_key_file_path,
         })
     }
 }
