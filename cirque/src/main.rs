@@ -2,9 +2,9 @@ use std::fs::File;
 use std::io::BufReader;
 use std::sync::Arc;
 mod config;
+use anyhow::{anyhow, Ok};
 use std::{path::PathBuf, str::FromStr};
 use tokio::net::TcpListener;
-use anyhow::{anyhow, Ok};
 use tokio_rustls::{rustls, TlsAcceptor};
 
 #[tokio::main]
@@ -14,15 +14,17 @@ async fn main() -> Result<(), anyhow::Error> {
 
     let mut certs = None;
     if let Some(cert_file_path) = c.cert_file_path {
-        certs = Some(rustls_pemfile::certs(&mut BufReader::new(&mut File::open(cert_file_path)?))
-            .collect::<Result<Vec<_>, _>>()?);
-    } 
+        certs = Some(
+            rustls_pemfile::certs(&mut BufReader::new(&mut File::open(cert_file_path)?))
+                .collect::<Result<Vec<_>, _>>()?,
+        );
+    }
     let mut private_key = None;
     if let Some(private_key_file_path) = c.private_key_file_path {
         private_key = rustls_pemfile::private_key(&mut BufReader::new(&mut File::open(
             private_key_file_path,
         )?))?;
-    } 
+    }
 
     if certs.is_some() && private_key.is_some() {
         let config = rustls::ServerConfig::builder()
@@ -34,22 +36,19 @@ async fn main() -> Result<(), anyhow::Error> {
         loop {
             let (stream, _peer_addr) = listener.accept().await?;
             let acceptor = acceptor.clone();
-    
+
             let fut = async move {
                 let mut _stream = acceptor.accept(stream).await?;
                 Ok(())
             };
-    
+
             tokio::spawn(async move {
                 if let Err(err) = fut.await {
                     eprintln!("{:?}", err);
                 }
             });
-
         }
-    }
-    else {
+    } else {
         Err(anyhow!("Config incomplete"))
     }
-
 }

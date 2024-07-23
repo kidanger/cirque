@@ -12,19 +12,17 @@ impl Config {
         let string = fs::read_to_string(in_path)?;
         let docs = YamlLoader::load_from_str(string.as_str())?;
         let doc = &docs[0];
-        // Debug support
-        println!("{:?}", doc); 
 
         // Index access for map & array
         let tls_cert = doc["tls"]["cert"].as_str();
         let tls_key = doc["tls"]["key"].as_str();
 
-        let mut cert_file_path : Option<PathBuf> = None;
+        let mut cert_file_path: Option<PathBuf> = None;
         if let Some(tls_cert) = tls_cert {
             cert_file_path = Some(PathBuf::from_str(tls_cert)?);
         }
 
-        let mut private_key_file_path : Option<PathBuf> = None;
+        let mut private_key_file_path: Option<PathBuf> = None;
         if let Some(tls_key) = tls_key {
             private_key_file_path = Some(PathBuf::from_str(tls_key)?);
         }
