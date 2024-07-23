@@ -4,8 +4,30 @@ use std::sync::Arc;
 mod config;
 use anyhow::{anyhow, Ok};
 use std::{path::PathBuf, str::FromStr};
+use tokio::io::AsyncReadExt;
 use tokio::net::TcpListener;
 use tokio_rustls::{rustls, TlsAcceptor};
+
+struct Session {
+    buffer: Vec<u8>,
+}
+
+impl Session {
+    pub fn new() -> Self {
+        Self {
+            buffer: Vec::with_capacity(512),
+        }
+    }
+
+    pub async fn read_buf(
+        &mut self,
+        stream: &mut tokio_rustls::server::TlsStream<tokio::net::TcpStream>,
+    ) -> Result<(), anyhow::Error> {
+        let _size = stream.read_buf(&mut self.buffer).await?;
+
+        Ok(())
+    }
+}
 
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
@@ -37,8 +59,14 @@ async fn main() -> Result<(), anyhow::Error> {
             let (stream, _peer_addr) = listener.accept().await?;
             let acceptor = acceptor.clone();
 
+            let mut session = Session::new();
+
             let fut = async move {
-                let mut _stream = acceptor.accept(stream).await?;
+                let mut stream = acceptor.accept(stream).await?;
+
+                loop {
+                    session.read_buf(&mut stream).await?;
+                }
                 Ok(())
             };
 
