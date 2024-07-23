@@ -1,14 +1,15 @@
 use std::fs::File;
-use std::io::{BufReader, Read, Write};
-use std::net::TcpListener;
+use std::io::BufReader;
 use std::sync::Arc;
 mod config;
 use std::{path::PathBuf, str::FromStr};
-
+use tokio::net::TcpListener;
 use anyhow::{anyhow, Ok};
+use tokio_rustls::{rustls, TlsAcceptor};
 
-fn main() -> Result<(), anyhow::Error> {
-    let config_path = PathBuf::from_str("assets/default.yml")?;
+#[tokio::main]
+async fn main() -> Result<(), anyhow::Error> {
+    let config_path = PathBuf::from_str("ircd.yml")?;
     let c = config::Config::new(&config_path)?;
 
     let mut certs = None;
@@ -28,19 +29,24 @@ fn main() -> Result<(), anyhow::Error> {
             .with_no_client_auth()
             .with_single_cert(certs.unwrap(), private_key.unwrap())?;
 
-        let listener = TcpListener::bind(format!("[::]:{}", 4443)).unwrap();
-        let (mut stream, _) = listener.accept()?;
+        let acceptor = TlsAcceptor::from(Arc::new(config));
+        let listener = TcpListener::bind(format!("[::]:{}", 6697)).await?;
+        loop {
+            let (stream, _peer_addr) = listener.accept().await?;
+            let acceptor = acceptor.clone();
+    
+            let fut = async move {
+                let mut _stream = acceptor.accept(stream).await?;
+                Ok(())
+            };
+    
+            tokio::spawn(async move {
+                if let Err(err) = fut.await {
+                    eprintln!("{:?}", err);
+                }
+            });
 
-        let mut conn = rustls::ServerConnection::new(Arc::new(config))?;
-        conn.complete_io(&mut stream)?;
-
-        conn.writer().write_all(b"Hello from the server")?;
-        conn.complete_io(&mut stream)?;
-        let mut buf = [0; 64];
-        let len = conn.reader().read(&mut buf)?;
-        println!("Received message from client: {:?}", &buf[..len]);
-
-        Ok(())
+        }
     }
     else {
         Err(anyhow!("Config incomplete"))
