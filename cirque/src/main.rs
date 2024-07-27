@@ -32,7 +32,7 @@ impl Session {
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
     let config_path = PathBuf::from_str("ircd.yml")?;
-    let c = config::Config::new(&config_path)?;
+    let c = config::Config::load_from_path(&config_path)?;
 
     let mut certs = None;
     if let Some(cert_file_path) = c.cert_file_path {
