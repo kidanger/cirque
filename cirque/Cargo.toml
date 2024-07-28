@@ -11,12 +11,13 @@ tokio = { version = "1.39.0", features = [
     "macros",
     "net",
     "io-util",
+    "sync",
 ] }
 tokio-rustls = { version = "0.26", default-features = false, features = [
     "ring",
 ] }
 yaml-rust2 = "0.8.1"
-
+cirque-parser = { path = "../cirque-parser" }
 
 [dev-dependencies]
 rstest = "0.21.0"

@@ -106,6 +106,7 @@ name = "cirque"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "cirque-parser",
  "rstest",
  "rustls-pemfile",
  "tokio",
