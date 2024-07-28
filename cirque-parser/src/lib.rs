@@ -3,12 +3,12 @@
 ///
 use nom::{
     branch::alt,
-    bytes::complete::{tag, take_while, take_while1, take_while_m_n},
+    bytes::complete::{tag, take_till, take_while, take_while1, take_while_m_n},
     character::{
-        complete::{char, digit1},
+        complete::{char, space0},
         is_alphabetic, is_digit,
     },
-    combinator::{all_consuming, consumed, opt, recognize},
+    combinator::{opt, peek, rest},
     multi::many1,
     sequence::preceded,
     IResult,
@@ -17,20 +17,34 @@ use smallvec::SmallVec;
 
 /// Note: Server sources (used for server-to-server communications) are not handled.
 #[derive(Debug, PartialEq, Eq)]
-struct Source<'s> {
+pub struct Source<'s> {
     nickname: &'s [u8],
     user: Option<&'s [u8]>,
     host: Option<&'s [u8]>,
 }
 
-type Command = [u8];
-type Parameters<'a> = SmallVec<[&'a [u8]; 15]>;
+pub type Command = [u8];
+pub type Parameters<'a> = SmallVec<[&'a [u8]; 15]>;
 
 #[derive(Debug)]
 pub struct Message<'m> {
     source: Option<Source<'m>>,
     command: &'m Command,
     parameters: Parameters<'m>,
+}
+
+impl<'m> Message<'m> {
+    pub fn source(&self) -> &Option<Source<'m>> {
+        &self.source
+    }
+
+    pub fn command(&self) -> &'m Command {
+        self.command
+    }
+
+    pub fn parameters(&self) -> &'m Parameters {
+        &self.parameters
+    }
 }
 
 // Nicknames are non-empty strings with the following restrictions:
@@ -44,7 +58,7 @@ pub struct Message<'m> {
 fn nickname(buf: &[u8]) -> IResult<&[u8], &[u8]> {
     let is_valid_nickname_char = |c: u8| {
         // TODO
-        c.is_ascii_alphanumeric()
+        c.is_ascii_alphanumeric() || c == b'-'
     };
 
     let (buf, nickname) = take_while1(is_valid_nickname_char)(buf)?;
@@ -102,13 +116,36 @@ fn parse_command(buf: &[u8]) -> IResult<&[u8], &Command> {
     Ok((buf, command))
 }
 
-fn parse_parameters(buf: &[u8]) -> IResult<&[u8], Parameters> {
-    todo!()
+fn parse_parameters(mut buf: &[u8]) -> IResult<&[u8], Parameters> {
+    let is_space = |c: u8| -> bool { c == b' ' };
+
+    let mut params: Parameters = smallvec::smallvec!();
+    loop {
+        if buf.is_empty() {
+            break;
+        }
+
+        let (buf_, _spaces) = take_while(is_space)(buf)?;
+        buf = buf_;
+
+        buf = if peek(tag::<_, _, nom::error::Error<&[u8]>>(b":"))(buf).is_ok() {
+            let (buf_, rest) = preceded(tag(b":"), rest)(buf)?;
+            params.push(rest);
+            buf_
+        } else {
+            let (buf_, param) = take_till(is_space)(buf)?;
+            params.push(param);
+            buf_
+        }
+    }
+
+    Ok((buf, params))
 }
 
 // message ::= ['@' <tags> SPACE] [':' <source> SPACE] <command> <parameters> <crlf>
 pub fn parse_message(buf: &[u8]) -> IResult<&[u8], Message> {
     let space = &char(' ');
+    let (buf, _) = space0(buf)?;
     let (buf, source) = opt(parse_source)(buf)?;
     let (buf, command) = preceded(many1(space), parse_command)(buf)?;
     let (buf, parameters) = preceded(many1(space), parse_parameters)(buf)?;
@@ -127,6 +164,7 @@ mod tests {
 
     mod command {
         use super::super::*;
+        use nom::combinator::all_consuming;
 
         #[test]
         fn ping() {
@@ -177,6 +215,7 @@ mod tests {
 
     mod source {
         use super::super::*;
+        use nom::combinator::all_consuming;
 
         #[test]
         fn nick_user() {
@@ -241,6 +280,7 @@ mod tests {
 
     mod parameters {
         use super::super::*;
+        use nom::combinator::all_consuming;
 
         #[test]
         fn ex1() {
@@ -297,6 +337,22 @@ mod tests {
             assert_eq!(params[0], b"#chan");
             assert_eq!(params[1], b":-)");
             assert_eq!(params.len(), 2);
+            assert!(buf.is_empty());
+        }
+    }
+
+    mod message {
+        use super::super::*;
+        use nom::combinator::all_consuming;
+
+        #[test]
+        fn ex1() {
+            let (buf, message) =
+                all_consuming(parse_message)(b"  :dan-!d@localhost QUIT :Quit: Bye for now!")
+                    .unwrap();
+            assert_eq!(message.command(), b"QUIT");
+            //let params = message.parameters();
+            //assert_eq!(params.len(), 1);
             assert!(buf.is_empty());
         }
     }
