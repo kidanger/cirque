@@ -7,6 +7,19 @@ pub struct Config {
     pub private_key_file_path: Option<PathBuf>,
 }
 
+#[macro_export]
+macro_rules! yaml_path {
+    ($d:expr, $( $x:expr ),* ) => {
+        {
+            let mut temp =$d;
+            $(
+                temp = &temp[$x];
+            )*
+            temp
+        }
+    };
+}
+
 impl Config {
     pub fn load_from_str(in_str: &str) -> Result<Self, anyhow::Error> {
         let docs = YamlLoader::load_from_str(in_str)?;
@@ -23,8 +36,8 @@ impl Config {
         let doc = &docs[0];
 
         // Index access for map & array
-        let tls_cert = doc["tls"]["cert"].as_str();
-        let tls_key = doc["tls"]["key"].as_str();
+        let tls_cert = yaml_path!(doc, "tls", "cert").as_str();
+        let tls_key = yaml_path!(doc, "tls", "key").as_str();
 
         let mut cert_file_path: Option<PathBuf> = None;
         if let Some(tls_cert) = tls_cert {
@@ -56,6 +69,24 @@ mod tests {
     fn default_yaml_path() -> Result<PathBuf, anyhow::Error> {
         let workspace_path = env!("CARGO_MANIFEST_DIR");
         Ok(PathBuf::from_str(workspace_path)?.join("../assets/default.yml"))
+    }
+
+    #[rstest]
+    fn load_valid_config_from_path() -> Result<(), anyhow::Error> {
+        let config = Config::load_from_path(&default_yaml_path()?)?;
+        assert!(config.cert_file_path.is_some());
+        assert!(config.private_key_file_path.is_some());
+
+        Ok(())
+    }
+
+    #[rstest]
+    fn load_valid_config_from_str() -> Result<(), anyhow::Error> {
+        let config = Config::load_from_str(fs::read_to_string(default_yaml_path()?)?.as_str())?;
+        assert!(config.cert_file_path.is_some());
+        assert!(config.private_key_file_path.is_some());
+
+        Ok(())
     }
 
     #[rstest]
