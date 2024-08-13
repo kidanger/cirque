@@ -1,17 +1,21 @@
 use std::io::BufReader;
-use std::sync::Arc;
 use std::{collections::HashMap, fs::File};
 mod config;
-use anyhow::{anyhow, Ok};
-use cirque_parser::Message;
 use std::{path::PathBuf, str::FromStr};
 use tokio::io::AsyncReadExt;
-use tokio::net::TcpListener;
-use tokio_rustls::{rustls, TlsAcceptor};
+use transport::{TCPListener, TLSListener};
+
+mod transport;
+
+use crate::transport::AnyStream;
+use crate::transport::Listener;
 
 type UserID = usize;
 type ChannelID = String;
 
+struct MessageToSend {}
+
+#[derive(Debug)]
 struct User {
     id: UserID,
     username: Vec<u8>,
@@ -19,12 +23,14 @@ struct User {
     mailbox: tokio::sync::mpsc::UnboundedSender<MessageToSend>,
 }
 
+#[derive(Debug)]
 struct ConnectingUser {
     cap: Option<Vec<String>>,
     nick: Option<String>,
     user: Option<String>,
 }
 
+#[derive(Debug)]
 struct Channel {
     name: String,
     users: Vec<UserID>,
@@ -32,140 +38,185 @@ struct Channel {
 
 impl Channel {}
 
+#[derive(Debug)]
 struct ServerState {
     users: HashMap<UserID, User>,
     connecting_users: Vec<ConnectingUser>,
     channels: HashMap<ChannelID, Channel>,
 }
 
-struct ConnectingSession {
-    stream: tokio_rustls::server::TlsStream<tokio::net::TcpStream>,
-}
-
+#[derive(Debug)]
 enum IRCMessage {
-    PRIVMSG(String, String),
+    CAP,
+    NICK(Vec<u8>),
+    USER(Vec<u8>),
     PING,
     PONG,
+    UNKNOWN,
 }
 
-impl TryFrom<cirque_parser::Message<'_>> for IRCMessage {
+impl TryFrom<cirque_parser::Message> for IRCMessage {
     type Error = anyhow::Error;
 
     fn try_from(value: cirque_parser::Message) -> Result<Self, Self::Error> {
-        todo!()
+        let message = match value.command().as_slice() {
+            b"CAP" => IRCMessage::CAP,
+            b"NICK" => IRCMessage::NICK(value.parameters()[0].clone()),
+            b"USER" => IRCMessage::USER(value.parameters()[0].clone()),
+            _ => todo!(),
+        };
+        Ok(message)
     }
 }
 
+struct ConnectingSession {
+    stream: AnyStream,
+}
+
 impl ConnectingSession {
-    pub async fn deal_with_connection(&mut self) -> Result<Session, anyhow::Error> {
-        let chosen_nick: Option<String> = None;
-        let chosen_user: Option<String> = None;
+    pub async fn connect_user(mut self) -> Result<(Session, User), anyhow::Error> {
+        let mut chosen_nick = None;
+        let mut chosen_user = None;
+
         let mut buffer = Vec::with_capacity(512);
         loop {
-            let _size = self.stream.read_buf(&mut buffer).await?;
+            buffer.clear();
+            self.stream.read_buf(&mut buffer).await?;
 
-            let (buffer, message) = cirque_parser::parse_message(&buffer)?;
+            anyhow::ensure!(!buffer.is_empty(), "stream ended");
+            dbg!("recv: {}", String::from_utf8_lossy(&buffer));
+
+            let message = cirque_parser::parse_one_message(buffer.clone());
+            let Some(message) = message else {
+                dbg!("cannot parse message");
+                continue;
+            };
+
+            dbg!(&message);
             let message = message.try_into()?;
+            dbg!(&message);
 
             match message {
-                IRCMessage::PRIVMSG(_, _) => todo!(),
-                IRCMessage::PING => todo!(),
-                IRCMessage::PONG => todo!(),
-                _ => anyhow::bail!("illegal command during connection"),
-            }
+                IRCMessage::CAP => {
+                    // ignore for now
+                }
+                IRCMessage::NICK(nick) => chosen_nick = Some(nick),
+                IRCMessage::USER(user) => chosen_user = Some(user),
+                _ => {
+                    anyhow::bail!("illegal command during connection");
+                }
+            };
 
-            if message.command() == b"MESSAGE" {
-                channel = state.get_channel(command.args[0]);
-                channel.send_message_to_everyone(command.args[1..]);
+            if chosen_user.is_some() && chosen_nick.is_some() {
+                break;
             }
         }
 
-        Ok(Session::new())
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        let session = Session {
+            stream: self.stream,
+            mailbox: rx,
+        };
+        let user = User {
+            id: 0,
+            username: chosen_user.unwrap(),
+            ip: "0.0.0.0".to_string(),
+            mailbox: tx,
+        };
+
+        Ok((session, user))
     }
 }
 
 struct Session {
-    buffer: Vec<u8>,
+    stream: AnyStream,
     mailbox: tokio::sync::mpsc::UnboundedReceiver<MessageToSend>,
 }
 
 impl Session {
-    pub fn new() -> Self {
-        Self {
-            buffer: Vec::with_capacity(512),
+    pub async fn run(mut self) -> Result<(), anyhow::Error> {
+        // TODO: handle mailbox
+        let mut buffer = Vec::with_capacity(512);
+        loop {
+            buffer.clear();
+            self.stream.read_buf(&mut buffer).await?;
+            dbg!("recv: {}", &buffer);
+
+            anyhow::ensure!(!buffer.is_empty(), "stream ended");
+
+            let message = cirque_parser::parse_one_message(buffer.clone());
+            let Some(message) = message else {
+                dbg!("cannot parse message");
+                continue;
+            };
+
+            dbg!(&message);
+            let message = message.try_into()?;
+            dbg!(&message);
+
+            match message {
+                IRCMessage::PING => {
+                    todo!();
+                }
+                IRCMessage::PONG => {
+                    break;
+                }
+                _ => {
+                    anyhow::bail!("illegal command during connection");
+                }
+            };
         }
-    }
-
-    pub async fn read_buf(
-        &mut self,
-        stream: &mut tokio_rustls::server::TlsStream<tokio::net::TcpStream>,
-    ) -> Result<(), anyhow::Error> {
-        let _size = stream.read_buf(&mut self.buffer).await?;
-
-        if command == "MESSAGE" {
-            channel = state.get_channel(command.args[0]);
-            channel.send_message_to_everyone(command.args[1..]);
-        }
-
-        let user: User;
-        user.mailbox.send(message_to_send);
 
         Ok(())
     }
 }
 
+async fn run_server(listener: impl Listener) -> anyhow::Result<()> {
+    loop {
+        let stream = listener.accept().await?;
+
+        let fut = async move {
+            let session = ConnectingSession { stream };
+            let (session, user) = session.connect_user().await?;
+            session.run().await?;
+            anyhow::Ok(())
+        };
+
+        tokio::spawn(async move {
+            if let Err(err) = fut.await {
+                eprintln!("{:?}", err);
+            }
+        });
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
-    dbg!("hello world");
     let config_path = PathBuf::from_str("ircd.yml")?;
-    let c = config::Config::load_from_path(&config_path)?;
+    if let Ok(config) = config::Config::load_from_path(&config_path) {
+        let mut certs = None;
+        if let Some(cert_file_path) = config.cert_file_path {
+            certs = Some(
+                rustls_pemfile::certs(&mut BufReader::new(&mut File::open(cert_file_path)?))
+                    .collect::<Result<Vec<_>, _>>()?,
+            );
+        }
+        let mut private_key = None;
+        if let Some(private_key_file_path) = config.private_key_file_path {
+            private_key = rustls_pemfile::private_key(&mut BufReader::new(&mut File::open(
+                private_key_file_path,
+            )?))?;
+        }
 
-    let mut certs = None;
-    if let Some(cert_file_path) = c.cert_file_path {
-        certs = Some(
-            rustls_pemfile::certs(&mut BufReader::new(&mut File::open(cert_file_path)?))
-                .collect::<Result<Vec<_>, _>>()?,
-        );
-    }
-    let mut private_key = None;
-    if let Some(private_key_file_path) = c.private_key_file_path {
-        private_key = rustls_pemfile::private_key(&mut BufReader::new(&mut File::open(
-            private_key_file_path,
-        )?))?;
-    }
-
-    if certs.is_some() && private_key.is_some() {
-        let config = rustls::ServerConfig::builder()
-            .with_no_client_auth()
-            .with_single_cert(certs.unwrap(), private_key.unwrap())?;
-
-        let acceptor = TlsAcceptor::from(Arc::new(config));
-        let listener = TcpListener::bind(format!("[::]:{}", 6697)).await?;
-        loop {
-            let (stream, _peer_addr) = listener.accept().await?;
-            let acceptor = acceptor.clone();
-
-            let mut session = Session::new();
-
-            let fut = async move {
-                let mut stream = acceptor.accept(stream).await?;
-
-                let session = ConnectingSession { stream };
-                let session = session.deal_with_connection();
-
-                loop {
-                    session.read_buf(&mut stream).await?;
-                }
-                Ok(())
-            };
-
-            tokio::spawn(async move {
-                if let Err(err) = fut.await {
-                    eprintln!("{:?}", err);
-                }
-            });
+        if certs.is_some() && private_key.is_some() {
+            let listener = TLSListener::try_new(certs.unwrap(), private_key.unwrap()).await?;
+            run_server(listener).await
+        } else {
+            anyhow::bail!("Config incomplete");
         }
     } else {
-        Err(anyhow!("Config incomplete"))
+        dbg!("listening wihtout TLS on 6667");
+        let listener = TCPListener::try_new(6667).await?;
+        run_server(listener).await
     }
 }
