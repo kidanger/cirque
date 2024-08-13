@@ -1,8 +1,9 @@
 use std::io::BufReader;
 use std::{collections::HashMap, fs::File};
 mod config;
+use cirque_parser::stream::StreamParser;
 use std::{path::PathBuf, str::FromStr};
-use tokio::io::AsyncReadExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use transport::{TCPListener, TLSListener};
 
 mod transport;
@@ -50,8 +51,9 @@ enum IRCMessage {
     CAP,
     NICK(Vec<u8>),
     USER(Vec<u8>),
-    PING,
-    PONG,
+    PING(Vec<u8>),
+    PONG(Vec<u8>),
+    QUIT,
     UNKNOWN,
 }
 
@@ -63,7 +65,9 @@ impl TryFrom<cirque_parser::Message> for IRCMessage {
             b"CAP" => IRCMessage::CAP,
             b"NICK" => IRCMessage::NICK(value.parameters()[0].clone()),
             b"USER" => IRCMessage::USER(value.parameters()[0].clone()),
-            _ => todo!(),
+            b"PONG" => IRCMessage::PONG(value.parameters()[0].clone()),
+            b"QUIT" => IRCMessage::QUIT,
+            _ => IRCMessage::UNKNOWN,
         };
         Ok(message)
     }
@@ -77,40 +81,51 @@ impl ConnectingSession {
     pub async fn connect_user(mut self) -> Result<(Session, User), anyhow::Error> {
         let mut chosen_nick = None;
         let mut chosen_user = None;
-
+        let mut ping_token = None;
+        let mut sp = StreamParser::default();
         let mut buffer = Vec::with_capacity(512);
-        loop {
+
+        'outer: loop {
             buffer.clear();
             self.stream.read_buf(&mut buffer).await?;
-
-            anyhow::ensure!(!buffer.is_empty(), "stream ended");
             dbg!("recv: {}", String::from_utf8_lossy(&buffer));
 
-            let message = cirque_parser::parse_one_message(buffer.clone());
-            let Some(message) = message else {
-                dbg!("cannot parse message");
-                continue;
-            };
+            anyhow::ensure!(!buffer.is_empty(), "stream ended");
 
-            dbg!(&message);
-            let message = message.try_into()?;
-            dbg!(&message);
+            for message in sp.try_read(&buffer) {
+                let message = message?;
+                let message = message.try_into()?;
+                dbg!(&message);
 
-            match message {
-                IRCMessage::CAP => {
-                    // ignore for now
-                }
-                IRCMessage::NICK(nick) => chosen_nick = Some(nick),
-                IRCMessage::USER(user) => chosen_user = Some(user),
-                _ => {
-                    anyhow::bail!("illegal command during connection");
-                }
-            };
+                match message {
+                    IRCMessage::CAP => {
+                        // ignore for now
+                    }
+                    IRCMessage::NICK(nick) => chosen_nick = Some(nick),
+                    IRCMessage::USER(user) => chosen_user = Some(user),
+                    IRCMessage::PONG(token) => {
+                        if Some(token) == ping_token {
+                            break 'outer;
+                        }
+                        break;
+                    }
+                    _ => {
+                        anyhow::bail!("illegal command during connection");
+                    }
+                };
+            }
 
             if chosen_user.is_some() && chosen_nick.is_some() {
-                break;
+                let token = b"something".to_vec();
+                self.stream.write_all(b"PING :").await?;
+                self.stream.write_all(&token).await?;
+                self.stream.write_all(b"\r\n").await?;
+                ping_token = Some(token);
             }
         }
+
+        dbg!("user is ready");
+        self.stream.write_all(b"001 :welcome\r\n").await?;
 
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         let session = Session {
@@ -136,35 +151,30 @@ struct Session {
 impl Session {
     pub async fn run(mut self) -> Result<(), anyhow::Error> {
         // TODO: handle mailbox
+        let mut sp = StreamParser::default();
         let mut buffer = Vec::with_capacity(512);
-        loop {
+        'run: loop {
             buffer.clear();
             self.stream.read_buf(&mut buffer).await?;
-            dbg!("recv: {}", &buffer);
+            dbg!("recv: {}", String::from_utf8_lossy(&buffer));
 
             anyhow::ensure!(!buffer.is_empty(), "stream ended");
 
-            let message = cirque_parser::parse_one_message(buffer.clone());
-            let Some(message) = message else {
-                dbg!("cannot parse message");
-                continue;
-            };
+            for message in sp.try_read(&buffer) {
+                let message = message?;
+                let message = message.try_into()?;
+                dbg!(&message);
 
-            dbg!(&message);
-            let message = message.try_into()?;
-            dbg!(&message);
-
-            match message {
-                IRCMessage::PING => {
-                    todo!();
-                }
-                IRCMessage::PONG => {
-                    break;
-                }
-                _ => {
-                    anyhow::bail!("illegal command during connection");
-                }
-            };
+                match message {
+                    IRCMessage::UNKNOWN => {}
+                    IRCMessage::QUIT => {
+                        break 'run;
+                    }
+                    _ => {
+                        anyhow::bail!("illegal command during connection");
+                    }
+                };
+            }
         }
 
         Ok(())
