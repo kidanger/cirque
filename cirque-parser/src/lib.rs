@@ -10,39 +10,39 @@ use nom::{
     },
     combinator::{opt, peek, rest},
     multi::many1,
-    sequence::preceded,
+    sequence::{preceded, terminated},
     IResult,
 };
 use smallvec::SmallVec;
 
 /// Note: Server sources (used for server-to-server communications) are not handled.
 #[derive(Debug, PartialEq, Eq)]
-pub struct Source<'s> {
-    nickname: &'s [u8],
-    user: Option<&'s [u8]>,
-    host: Option<&'s [u8]>,
+pub struct Source {
+    nickname: Vec<u8>,
+    user: Option<Vec<u8>>,
+    host: Option<Vec<u8>>,
 }
 
-pub type Command = [u8];
-pub type Parameters<'a> = SmallVec<[&'a [u8]; 15]>;
+pub type Command = Vec<u8>;
+pub type Parameters = SmallVec<[Vec<u8>; 15]>;
 
 #[derive(Debug)]
-pub struct Message<'m> {
-    source: Option<Source<'m>>,
-    command: &'m Command,
-    parameters: Parameters<'m>,
+pub struct Message {
+    source: Option<Source>,
+    command: Command,
+    parameters: Parameters,
 }
 
-impl<'m> Message<'m> {
-    pub fn source(&self) -> &Option<Source<'m>> {
+impl Message {
+    pub fn source(&self) -> &Option<Source> {
         &self.source
     }
 
-    pub fn command(&self) -> &'m Command {
-        self.command
+    pub fn command(&self) -> &Command {
+        &self.command
     }
 
-    pub fn parameters(&self) -> &'m Parameters {
+    pub fn parameters(&self) -> &Parameters {
         &self.parameters
     }
 }
@@ -91,9 +91,9 @@ fn parse_source_inner(buf: &[u8]) -> IResult<&[u8], Source> {
     let (buf, host) = opt(preceded(char('@'), host))(buf)?;
 
     let source = Source {
-        nickname,
-        user,
-        host,
+        nickname: nickname.into(),
+        user: user.map(Into::into),
+        host: host.map(Into::into),
     };
     Ok((buf, source))
 }
@@ -108,12 +108,12 @@ fn parse_source(buf: &[u8]) -> IResult<&[u8], Source> {
 }
 
 // command ::= letter* / 3digit
-fn parse_command(buf: &[u8]) -> IResult<&[u8], &Command> {
+fn parse_command(buf: &[u8]) -> IResult<&[u8], Command> {
     let letters = take_while1(is_alphabetic);
     let digits = take_while_m_n(3, 3, is_digit);
 
     let (buf, command) = alt((letters, digits))(buf)?;
-    Ok((buf, command))
+    Ok((buf, command.into()))
 }
 
 fn parse_parameters(mut buf: &[u8]) -> IResult<&[u8], Parameters> {
@@ -130,11 +130,11 @@ fn parse_parameters(mut buf: &[u8]) -> IResult<&[u8], Parameters> {
 
         buf = if peek(tag::<_, _, nom::error::Error<&[u8]>>(b":"))(buf).is_ok() {
             let (buf_, rest) = preceded(tag(b":"), rest)(buf)?;
-            params.push(rest);
+            params.push(rest.into());
             buf_
         } else {
             let (buf_, param) = take_till(is_space)(buf)?;
-            params.push(param);
+            params.push(param.into());
             buf_
         }
     }
@@ -146,8 +146,8 @@ fn parse_parameters(mut buf: &[u8]) -> IResult<&[u8], Parameters> {
 pub fn parse_message(buf: &[u8]) -> IResult<&[u8], Message> {
     let space = &char(' ');
     let (buf, _) = space0(buf)?;
-    let (buf, source) = opt(parse_source)(buf)?;
-    let (buf, command) = preceded(many1(space), parse_command)(buf)?;
+    let (buf, source) = opt(terminated(parse_source, many1(space)))(buf)?;
+    let (buf, command) = parse_command(buf)?;
     let (buf, parameters) = preceded(many1(space), parse_parameters)(buf)?;
     Ok((
         buf,
@@ -157,6 +157,14 @@ pub fn parse_message(buf: &[u8]) -> IResult<&[u8], Message> {
             parameters,
         },
     ))
+}
+
+pub fn parse_one_message(buf: Vec<u8>) -> Option<Message> {
+    if let Ok((_, message)) = parse_message(&buf) {
+        Some(message)
+    } else {
+        None
+    }
 }
 
 #[cfg(test)]
@@ -201,7 +209,7 @@ mod tests {
         #[test]
         fn success_3digit() {
             let (buf, cmd) = all_consuming(parse_command)(b"000").unwrap();
-            dbg!((buf, cmd));
+            dbg!((buf, &cmd));
             assert!(buf.is_empty());
             assert_eq!(cmd, b"000");
         }
@@ -223,8 +231,8 @@ mod tests {
             assert_eq!(
                 cmd,
                 Source {
-                    nickname: b"nick",
-                    user: Some(b"user"),
+                    nickname: b"nick".into(),
+                    user: Some(b"user".into()),
                     host: None,
                 }
             );
@@ -237,9 +245,9 @@ mod tests {
             assert_eq!(
                 cmd,
                 Source {
-                    nickname: b"nick",
+                    nickname: b"nick".into(),
                     user: None,
-                    host: Some(b"host")
+                    host: Some(b"host".into())
                 }
             );
             assert!(buf.is_empty());
@@ -251,9 +259,9 @@ mod tests {
             assert_eq!(
                 cmd,
                 Source {
-                    nickname: b"nick",
-                    user: Some(b"user"),
-                    host: Some(b"host")
+                    nickname: b"nick".into(),
+                    user: Some(b"user".into()),
+                    host: Some(b"host".into())
                 }
             );
             assert!(buf.is_empty());
@@ -353,6 +361,13 @@ mod tests {
             assert_eq!(message.command(), b"QUIT");
             //let params = message.parameters();
             //assert_eq!(params.len(), 1);
+            assert!(buf.is_empty());
+        }
+
+        #[test]
+        fn ex2() {
+            let (buf, message) = all_consuming(parse_message)(b"CAP LS 302").unwrap();
+            assert_eq!(message.command(), b"CAP");
             assert!(buf.is_empty());
         }
     }
