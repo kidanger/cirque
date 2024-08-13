@@ -33,7 +33,9 @@ impl Config {
 
     fn load_from_yaml(yaml: Vec<Yaml>) -> Result<Self, anyhow::Error> {
         let docs = yaml;
-        let doc = &docs[0];
+        let doc = docs
+            .first()
+            .ok_or(anyhow::anyhow!("invalid yaml document"))?;
 
         // Index access for map & array
         let tls_cert = yaml_path!(doc, "tls", "cert").as_str();
