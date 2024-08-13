@@ -9,11 +9,13 @@ use nom::{
         is_alphabetic, is_digit,
     },
     combinator::{opt, peek, rest},
-    multi::many1,
+    multi::{many0, many1},
     sequence::{preceded, terminated},
     IResult,
 };
 use smallvec::SmallVec;
+
+pub mod stream;
 
 /// Note: Server sources (used for server-to-server communications) are not handled.
 #[derive(Debug, PartialEq, Eq)]
@@ -148,7 +150,7 @@ pub fn parse_message(buf: &[u8]) -> IResult<&[u8], Message> {
     let (buf, _) = space0(buf)?;
     let (buf, source) = opt(terminated(parse_source, many1(space)))(buf)?;
     let (buf, command) = parse_command(buf)?;
-    let (buf, parameters) = preceded(many1(space), parse_parameters)(buf)?;
+    let (buf, parameters) = preceded(many0(space), parse_parameters)(buf)?;
     Ok((
         buf,
         Message {
