@@ -75,7 +75,7 @@ impl Message {
             }
             Message::Names(n) => {
                 for (channel, nicknames) in &n.names {
-                    stream.write_all(b"353 ").await?;
+                    stream.write_all(b":srv 353 ").await?;
                     stream.write_all(n.nickname.as_bytes()).await?;
                     stream.write_all(b" = ").await?;
                     stream.write_all(channel.as_bytes()).await?;
@@ -85,7 +85,7 @@ impl Message {
                         stream.write_all(b" ").await?;
                     }
                     stream.write_all(b"\r\n").await?;
-                    stream.write_all(b"366 ").await?;
+                    stream.write_all(b":srv 366 ").await?;
                     stream.write_all(n.nickname.as_bytes()).await?;
                     stream.write_all(b" ").await?;
                     stream.write_all(channel.as_bytes()).await?;
@@ -98,14 +98,14 @@ impl Message {
                 topic,
             }) => {
                 if let Some(topic) = topic {
-                    stream.write_all(b"332 ").await?;
+                    stream.write_all(b":srv 332 ").await?;
                     stream.write_all(nickname.as_bytes()).await?;
                     stream.write_all(b" ").await?;
                     stream.write_all(channel.as_bytes()).await?;
                     stream.write_all(b" :").await?;
                     stream.write_all(topic).await?;
                 } else {
-                    stream.write_all(b"331 ").await?;
+                    stream.write_all(b":srv 331 ").await?;
                     stream.write_all(nickname.as_bytes()).await?;
                     stream.write_all(b" ").await?;
                     stream.write_all(channel.as_bytes()).await?;
@@ -123,7 +123,7 @@ impl Message {
                 channel,
                 mode,
             }) => {
-                stream.write_all(b"324 ").await?;
+                stream.write_all(b":srv 324 ").await?;
                 stream.write_all(nickname.as_bytes()).await?;
                 stream.write_all(b" ").await?;
                 stream.write_all(channel.as_bytes()).await?;
@@ -160,17 +160,17 @@ impl Message {
                 stream.write_all(b"\r\n").await?;
             }
             Message::ErrCannotSendToChan(channel) => {
-                stream.write_all(b"404 ").await?;
+                stream.write_all(b":srv 404 ").await?;
                 stream.write_all(channel.as_bytes()).await?;
                 stream.write_all(b" :Cannot send to channel\r\n").await?;
             }
             Message::ErrNoSuchNick(target) => {
-                stream.write_all(b"401 ").await?;
+                stream.write_all(b":srv 401 ").await?;
                 stream.write_all(target.as_bytes()).await?;
                 stream.write_all(b" :No such nick/channel\r\n").await?;
             }
             Message::ErrNoTextToSend() => {
-                stream.write_all(b"412 :No text to send\r\n").await?;
+                stream.write_all(b":srv 412 :No text to send\r\n").await?;
             }
         }
 

@@ -309,7 +309,7 @@ impl ConnectingSession {
             }
         }
 
-        self.stream.write_all(b"001 ").await?;
+        self.stream.write_all(b":srv 001 ").await?;
         self.stream
             .write_all(chosen_nick.as_ref().unwrap().as_bytes())
             .await?;
