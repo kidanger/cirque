@@ -4,6 +4,7 @@ use std::sync::{Arc, Mutex};
 use std::{collections::HashMap, fs::File};
 mod config;
 use cirque_parser::stream::StreamParser;
+use server_to_client::ChannelModeMessage;
 use std::{path::PathBuf, str::FromStr};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use transport::{TCPListener, TLSListener};
@@ -137,7 +138,34 @@ impl ServerState {
         user.send(&message);
     }
 
-    fn user_leaves_channel(&mut self, user_id: UserID, channel: &str) {}
+    fn user_leaves_channel(
+        &mut self,
+        user_id: UserID,
+        channel_name: &str,
+        reason: &Option<Vec<u8>>,
+    ) {
+        let channel = self
+            .channels
+            .entry(channel_name.to_owned())
+            .or_insert_with(|| Channel::new(channel_name));
+
+        if !channel.users.contains(&user_id) {
+            return;
+        }
+
+        let user = &self.users[&user_id];
+        let message = server_to_client::Message::Part(server_to_client::PartMessage {
+            user_fullspec: user.fullspec(),
+            channel: channel_name.to_string(),
+            reason: reason.clone(),
+        });
+        for user_id in &channel.users {
+            let user = &self.users[user_id];
+            user.send(&message);
+        }
+
+        channel.users.remove(&user_id);
+    }
 
     fn user_disconnects(&mut self, user_id: UserID) {}
 
@@ -152,12 +180,19 @@ impl ServerState {
     }
 
     fn user_messages_target(&mut self, user_id: UserID, target: &str, content: &[u8]) {
+        let user = &self.users[&user_id];
+
+        if content.is_empty() {
+            let message = server_to_client::Message::ErrNoTextToSend();
+            user.send(&message);
+            return;
+        }
+
         let Some(obj) = self.lookup_target(target) else {
-            // TODO: ERR_NOSUCHNICK
+            let message = server_to_client::Message::ErrNoSuchNick(target.to_string());
+            user.send(&message);
             return;
         };
-
-        let user = &self.users[&user_id];
 
         let message = server_to_client::Message::PrivMsg(server_to_client::PrivMsgMessage {
             from_user: user.fullspec(),
@@ -168,7 +203,9 @@ impl ServerState {
         match obj {
             LookupResult::Channel(channel) => {
                 if !channel.users.contains(&user_id) {
-                    // TODO: ERR_CANNOTSENDTOCHAN
+                    let message =
+                        server_to_client::Message::ErrCannotSendToChan(target.to_string());
+                    user.send(&message);
                     return;
                 }
 
@@ -184,8 +221,6 @@ impl ServerState {
             }
         }
     }
-
-    fn user_messages_to_user(&mut self, user_id: UserID, dst_user_id: UserID, msg: &[u8]) {}
 
     fn user_asks_channel_mode(&mut self, user_id: UserID, channel: &str) {
         let user = &self.users[&user_id];
@@ -304,6 +339,15 @@ impl Session {
                             .user_joins_channel(self.user_id, &channel);
                     }
                 }
+                client_to_server::Message::Part(channels, reason) => {
+                    for channel in channels {
+                        server_state.lock().unwrap().user_leaves_channel(
+                            self.user_id,
+                            &channel,
+                            &reason,
+                        );
+                    }
+                }
                 client_to_server::Message::AskModeChannel(channel) => {
                     server_state
                         .lock()
@@ -315,6 +359,7 @@ impl Session {
                         server_to_client::Message::Pong(server_to_client::PongMessage { token });
                     msg.write_to(&mut self.stream).await?;
                 }
+                client_to_server::Message::Pong(_) => {}
                 client_to_server::Message::Quit => return Ok(true),
                 client_to_server::Message::PrivMsg(target, content) => {
                     server_state.lock().unwrap().user_messages_target(

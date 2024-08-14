@@ -10,6 +10,7 @@ pub enum Message {
     Join(Vec<ChannelID>),
     AskModeChannel(ChannelID),
     PrivMsg(String, Vec<u8>),
+    Part(Vec<ChannelID>, Option<Vec<u8>>),
     Quit,
     Unknown,
 }
@@ -36,6 +37,14 @@ impl TryFrom<cirque_parser::Message> for Message {
                 let target = String::from_utf8(value.parameters()[0].clone())?;
                 let content = value.parameters()[1].clone();
                 Message::PrivMsg(target, content)
+            }
+            b"PART" => {
+                let channels = value.parameters()[0]
+                    .split(|&c| c == b',')
+                    .flat_map(|s| String::from_utf8(s.to_owned()))
+                    .collect::<Vec<_>>();
+                let reason = value.parameters().get(1).cloned();
+                Message::Part(channels, reason)
             }
             b"QUIT" => Message::Quit,
             _ => Message::Unknown,
