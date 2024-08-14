@@ -23,6 +23,11 @@ pub struct TopicMessage {
 }
 
 #[derive(Debug, Clone)]
+pub struct PongMessage {
+    pub token: Vec<u8>,
+}
+
+#[derive(Debug, Clone)]
 pub struct ChannelModeMessage {
     pub nickname: String,
     pub channel: ChannelID,
@@ -30,8 +35,10 @@ pub struct ChannelModeMessage {
 }
 
 #[derive(Debug, Clone)]
-pub struct PongMessage {
-    pub token: Vec<u8>,
+pub struct PrivMsgMessage {
+    pub from_user: String,
+    pub target: ChannelID,
+    pub content: Vec<u8>,
 }
 
 #[derive(Debug, Clone)]
@@ -41,6 +48,7 @@ pub enum Message {
     Topic(TopicMessage),
     Pong(PongMessage),
     ChannelMode(ChannelModeMessage),
+    PrivMsg(PrivMsgMessage),
 }
 
 impl Message {
@@ -109,6 +117,19 @@ impl Message {
                 stream.write_all(channel.as_bytes()).await?;
                 stream.write_all(b" ").await?;
                 stream.write_all(mode.as_bytes()).await?;
+                stream.write_all(b"\r\n").await?;
+            }
+            Message::PrivMsg(PrivMsgMessage {
+                from_user,
+                target,
+                content,
+            }) => {
+                stream.write_all(b":").await?;
+                stream.write_all(from_user.as_bytes()).await?;
+                stream.write_all(b" PRIVMSG ").await?;
+                stream.write_all(target.as_bytes()).await?;
+                stream.write_all(b" :").await?;
+                stream.write_all(content).await?;
                 stream.write_all(b"\r\n").await?;
             }
         }

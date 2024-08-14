@@ -9,6 +9,7 @@ pub enum Message {
     Pong(Vec<u8>),
     Join(Vec<ChannelID>),
     AskModeChannel(ChannelID),
+    PrivMsg(String, Vec<u8>),
     Quit,
     Unknown,
 }
@@ -25,13 +26,17 @@ impl TryFrom<cirque_parser::Message> for Message {
             b"JOIN" => {
                 let channels = value.parameters()[0]
                     .split(|&c| c == b',')
-                    .map(|s| String::from_utf8(s.to_owned()))
-                    .flatten()
+                    .flat_map(|s| String::from_utf8(s.to_owned()))
                     .collect::<Vec<_>>();
                 Message::Join(channels)
             }
             b"PING" => Message::Ping(value.parameters()[0].clone()),
             b"MODE" => Message::AskModeChannel(String::from_utf8(value.parameters()[0].clone())?),
+            b"PRIVMSG" => {
+                let target = String::from_utf8(value.parameters()[0].clone())?;
+                let content = value.parameters()[1].clone();
+                Message::PrivMsg(target, content)
+            }
             b"QUIT" => Message::Quit,
             _ => Message::Unknown,
         };

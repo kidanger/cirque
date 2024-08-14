@@ -70,6 +70,11 @@ impl Channel {
 
 impl Channel {}
 
+enum LookupResult<'r> {
+    Channel(&'r Channel),
+    User(&'r User),
+}
+
 type SharedServerState = Arc<Mutex<ServerState>>;
 
 #[derive(Debug)]
@@ -136,7 +141,49 @@ impl ServerState {
 
     fn user_disconnects(&mut self, user_id: UserID) {}
 
-    fn user_messages_to_channel(&mut self, user_id: UserID, channel: &str, msg: &[u8]) {}
+    fn lookup_target<'r>(&'r self, target: &str) -> Option<LookupResult<'r>> {
+        if let Some(channel) = self.channels.get(target) {
+            Some(LookupResult::Channel(channel))
+        } else if let Some(user) = self.users.values().find(|&u| u.nickname == target) {
+            Some(LookupResult::User(user))
+        } else {
+            None
+        }
+    }
+
+    fn user_messages_target(&mut self, user_id: UserID, target: &str, content: &[u8]) {
+        let Some(obj) = self.lookup_target(target) else {
+            // TODO: ERR_NOSUCHNICK
+            return;
+        };
+
+        let user = &self.users[&user_id];
+
+        let message = server_to_client::Message::PrivMsg(server_to_client::PrivMsgMessage {
+            from_user: user.fullspec(),
+            target: target.to_string(),
+            content: content.to_vec(),
+        });
+
+        match obj {
+            LookupResult::Channel(channel) => {
+                if !channel.users.contains(&user_id) {
+                    // TODO: ERR_CANNOTSENDTOCHAN
+                    return;
+                }
+
+                channel
+                    .users
+                    .iter()
+                    .filter(|&uid| *uid != user_id)
+                    .flat_map(|u| self.users.get(u))
+                    .for_each(|u| u.send(&message));
+            }
+            LookupResult::User(target_user) => {
+                target_user.send(&message);
+            }
+        }
+    }
 
     fn user_messages_to_user(&mut self, user_id: UserID, dst_user_id: UserID, msg: &[u8]) {}
 
@@ -269,8 +316,15 @@ impl Session {
                     msg.write_to(&mut self.stream).await?;
                 }
                 client_to_server::Message::Quit => return Ok(true),
+                client_to_server::Message::PrivMsg(target, content) => {
+                    server_state.lock().unwrap().user_messages_target(
+                        self.user_id,
+                        &target,
+                        &content,
+                    );
+                }
                 _ => {
-                    anyhow::bail!("illegal command from connected client");
+                    println!("illegal command from connected client");
                 }
             };
         }
