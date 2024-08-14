@@ -4,7 +4,6 @@ use std::sync::{Arc, Mutex};
 use std::{collections::HashMap, fs::File};
 mod config;
 use cirque_parser::stream::StreamParser;
-use server_to_client::ChannelModeMessage;
 use std::{path::PathBuf, str::FromStr};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use transport::{TCPListener, TLSListener};
@@ -52,24 +51,11 @@ struct ConnectingUser {
     user: Option<String>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 struct Channel {
-    name: String,
     topic: Vec<u8>,
     users: HashSet<UserID>,
 }
-
-impl Channel {
-    fn new(name: &str) -> Self {
-        Self {
-            name: name.to_owned(),
-            topic: vec![],
-            users: Default::default(),
-        }
-    }
-}
-
-impl Channel {}
 
 enum LookupResult<'r> {
     Channel(&'r Channel),
@@ -95,10 +81,7 @@ impl ServerState {
     }
 
     fn user_joins_channel(&mut self, user_id: UserID, channel_name: &str) {
-        let channel = self
-            .channels
-            .entry(channel_name.to_owned())
-            .or_insert_with(|| Channel::new(channel_name));
+        let channel = self.channels.entry(channel_name.to_owned()).or_default();
 
         if channel.users.contains(&user_id) {
             return;
@@ -144,10 +127,9 @@ impl ServerState {
         channel_name: &str,
         reason: &Option<Vec<u8>>,
     ) {
-        let channel = self
-            .channels
-            .entry(channel_name.to_owned())
-            .or_insert_with(|| Channel::new(channel_name));
+        let Some(channel) = self.channels.get_mut(channel_name) else {
+            return;
+        };
 
         if !channel.users.contains(&user_id) {
             return;
