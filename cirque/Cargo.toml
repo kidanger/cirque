@@ -19,6 +19,7 @@ tokio-rustls = { version = "0.26", default-features = false, features = [
 yaml-rust2 = "0.8.1"
 cirque-parser = { path = "../cirque-parser" }
 uuid = { version = "1.10.0", features = ["v4"] }
+thiserror = "1.0.63"
 
 [dev-dependencies]
 rstest = "0.21.0"

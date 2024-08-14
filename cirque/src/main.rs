@@ -214,6 +214,46 @@ impl ServerState {
             });
         user.send(&message);
     }
+
+    fn user_topic(&mut self, user_id: UserID, target: &str, content: &Option<Vec<u8>>) {
+        if self.users.values().any(|u| u.nickname == target) {
+            //TODO: ERR_NOTONCHANNEL
+            return;
+        }
+        dbg!(target);
+
+        if let Some(channel) = self.channels.get_mut(target) {
+            let user = &self.users[&user_id];
+
+            //Set a new topic
+            if let Some(content) = content {
+                channel.topic.clone_from(content);
+
+                let message = server_to_client::Message::Topic(server_to_client::TopicMessage {
+                    nickname: user.nickname.clone(),
+                    channel: target.into(),
+                    topic: Some(content.clone()),
+                });
+                dbg!(&message);
+
+                channel
+                    .users
+                    .iter()
+                    .flat_map(|u| self.users.get(u))
+                    .for_each(|u| u.send(&message));
+            } else {
+                //view a current topic
+                let message = server_to_client::Message::Topic(server_to_client::TopicMessage {
+                    nickname: user.nickname.clone(),
+                    channel: target.into(),
+                    topic: Some(channel.topic.clone()),
+                });
+                user.send(&message);
+            }
+        } else {
+            // TODO: ERR_NOSUCHCHANNEL
+        }
+    }
 }
 
 struct ConnectingSession {
@@ -349,6 +389,12 @@ impl Session {
                         &target,
                         &content,
                     );
+                }
+                client_to_server::Message::Topic(target, content) => {
+                    server_state
+                        .lock()
+                        .unwrap()
+                        .user_topic(self.user_id, &target, &content);
                 }
                 _ => {
                     println!("illegal command from connected client");

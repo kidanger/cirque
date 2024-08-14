@@ -8,6 +8,7 @@ pub enum Message {
     Ping(Vec<u8>),
     Pong(Vec<u8>),
     Join(Vec<ChannelID>),
+    Topic(ChannelID, Option<Vec<u8>>),
     AskModeChannel(ChannelID),
     PrivMsg(String, Vec<u8>),
     Part(Vec<ChannelID>, Option<Vec<u8>>),
@@ -31,6 +32,10 @@ impl TryFrom<cirque_parser::Message> for Message {
                     .collect::<Vec<_>>();
                 Message::Join(channels)
             }
+            b"TOPIC" => Message::Topic(
+                String::from_utf8(value.parameters()[0].clone())?,
+                value.parameters().get(1).cloned(),
+            ),
             b"PING" => Message::Ping(value.parameters()[0].clone()),
             b"MODE" => Message::AskModeChannel(String::from_utf8(value.parameters()[0].clone())?),
             b"PRIVMSG" => {
