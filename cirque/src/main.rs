@@ -1,14 +1,14 @@
+use cirque_parser::stream::StreamParser;
 use std::collections::HashSet;
 use std::io::BufReader;
 use std::sync::{Arc, Mutex};
 use std::{collections::HashMap, fs::File};
-mod config;
-use cirque_parser::stream::StreamParser;
 use std::{path::PathBuf, str::FromStr};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use transport::{TCPListener, TLSListener};
 
 mod client_to_server;
+mod config;
 mod server_to_client;
 mod transport;
 
