@@ -9,9 +9,10 @@ use transport::{TCPListener, TLSListener};
 
 mod client_to_server;
 mod config;
+mod server_state;
 mod server_to_client;
 mod transport;
-
+use crate::server_state::ServerState;
 use crate::transport::AnyStream;
 use crate::transport::Listener;
 
@@ -50,7 +51,6 @@ struct ConnectingUser {
     nick: Option<String>,
     user: Option<String>,
 }
-use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Debug, Default, Clone)]
 struct Topic {
@@ -71,211 +71,7 @@ struct Channel {
     users: HashSet<UserID>,
 }
 
-enum LookupResult<'r> {
-    Channel(&'r Channel),
-    User(&'r User),
-}
-
 type SharedServerState = Arc<Mutex<ServerState>>;
-
-#[derive(Debug)]
-struct ServerState {
-    users: HashMap<UserID, User>,
-    connecting_users: Vec<ConnectingUser>,
-    channels: HashMap<ChannelID, Channel>,
-}
-
-impl ServerState {
-    fn new() -> Self {
-        Self {
-            users: Default::default(),
-            connecting_users: vec![],
-            channels: Default::default(),
-        }
-    }
-
-    fn user_joins_channel(&mut self, user_id: UserID, channel_name: &str) {
-        let channel = self.channels.entry(channel_name.to_owned()).or_default();
-
-        if channel.users.contains(&user_id) {
-            return;
-        }
-
-        channel.users.insert(user_id);
-
-        // notify everyone, including the joiner
-        let mut nicknames = vec![];
-        let joiner_spec = self.users[&user_id].fullspec();
-        let message = server_to_client::Message::Join(server_to_client::JoinMessage {
-            channel: channel_name.to_owned(),
-            user_fullspec: joiner_spec,
-        });
-        for user_id in &channel.users {
-            let user = &self.users[user_id];
-            nicknames.push(user.nickname.clone());
-            user.send(&message);
-        }
-
-        // send topic and names to the joiner
-        let user = &self.users[&user_id];
-        let message = server_to_client::Message::Topic(server_to_client::TopicMessage {
-            nickname: user.nickname.to_owned(),
-            channel: channel_name.to_owned(),
-            topic: if channel.topic.is_valid() {
-                Some(channel.topic.clone())
-            } else {
-                None
-            },
-        });
-        user.send(&message);
-        let message = server_to_client::Message::Names(server_to_client::NamesMessage {
-            nickname: user.nickname.clone(),
-            names: vec![(channel_name.to_owned(), nicknames)],
-        });
-        user.send(&message);
-    }
-
-    fn user_leaves_channel(
-        &mut self,
-        user_id: UserID,
-        channel_name: &str,
-        reason: &Option<Vec<u8>>,
-    ) {
-        let Some(channel) = self.channels.get_mut(channel_name) else {
-            return;
-        };
-
-        if !channel.users.contains(&user_id) {
-            return;
-        }
-
-        let user = &self.users[&user_id];
-        let message = server_to_client::Message::Part(server_to_client::PartMessage {
-            user_fullspec: user.fullspec(),
-            channel: channel_name.to_string(),
-            reason: reason.clone(),
-        });
-        for user_id in &channel.users {
-            let user = &self.users[user_id];
-            user.send(&message);
-        }
-
-        channel.users.remove(&user_id);
-    }
-
-    fn user_disconnects(&mut self, user_id: UserID) {}
-
-    fn lookup_target<'r>(&'r self, target: &str) -> Option<LookupResult<'r>> {
-        if let Some(channel) = self.channels.get(target) {
-            Some(LookupResult::Channel(channel))
-        } else if let Some(user) = self.users.values().find(|&u| u.nickname == target) {
-            Some(LookupResult::User(user))
-        } else {
-            None
-        }
-    }
-
-    fn user_messages_target(&mut self, user_id: UserID, target: &str, content: &[u8]) {
-        let user = &self.users[&user_id];
-
-        if content.is_empty() {
-            let message = server_to_client::Message::ErrNoTextToSend();
-            user.send(&message);
-            return;
-        }
-
-        let Some(obj) = self.lookup_target(target) else {
-            let message = server_to_client::Message::ErrNoSuchNick(target.to_string());
-            user.send(&message);
-            return;
-        };
-
-        let message = server_to_client::Message::PrivMsg(server_to_client::PrivMsgMessage {
-            from_user: user.fullspec(),
-            target: target.to_string(),
-            content: content.to_vec(),
-        });
-
-        match obj {
-            LookupResult::Channel(channel) => {
-                if !channel.users.contains(&user_id) {
-                    let message =
-                        server_to_client::Message::ErrCannotSendToChan(target.to_string());
-                    user.send(&message);
-                    return;
-                }
-
-                channel
-                    .users
-                    .iter()
-                    .filter(|&uid| *uid != user_id)
-                    .flat_map(|u| self.users.get(u))
-                    .for_each(|u| u.send(&message));
-            }
-            LookupResult::User(target_user) => {
-                target_user.send(&message);
-            }
-        }
-    }
-
-    fn user_asks_channel_mode(&mut self, user_id: UserID, channel: &str) {
-        let user = &self.users[&user_id];
-        let message =
-            server_to_client::Message::ChannelMode(server_to_client::ChannelModeMessage {
-                nickname: user.nickname.clone(),
-                channel: channel.to_owned(),
-                mode: "+n".to_string(),
-            });
-        user.send(&message);
-    }
-
-    fn user_topic(&mut self, user_id: UserID, target: &str, content: &Option<Vec<u8>>) {
-        if self.users.values().any(|u| u.nickname == target) {
-            //TODO: ERR_NOTONCHANNEL
-            return;
-        }
-        dbg!(target);
-
-        if let Some(channel) = self.channels.get_mut(target) {
-            let user = &self.users[&user_id];
-
-            //Set a new topic
-            if let Some(content) = content {
-                channel.topic.content.clone_from(content);
-                channel.topic.ts = SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap()
-                    .as_secs();
-                channel.topic.from_nickname.clone_from(&user.nickname);
-
-                channel
-                    .users
-                    .iter()
-                    .flat_map(|u| self.users.get(u))
-                    .for_each(|u| {
-                        u.send(&server_to_client::Message::Topic(
-                            server_to_client::TopicMessage {
-                                nickname: user.nickname.clone(),
-                                channel: target.into(),
-                                topic: Some(channel.topic.clone()),
-                            },
-                        ))
-                    });
-            } else {
-                //view a current topic
-                let message = server_to_client::Message::Topic(server_to_client::TopicMessage {
-                    nickname: user.nickname.clone(),
-                    channel: target.into(),
-                    topic: Some(channel.topic.clone()),
-                });
-                user.send(&message);
-            }
-        } else {
-            // TODO: ERR_NOSUCHCHANNEL
-        }
-    }
-}
-
 struct ConnectingSession {
     stream: AnyStream,
 }
@@ -472,7 +268,7 @@ async fn run_server(
         let fut = async move {
             let session = ConnectingSession { stream };
             let (session, user) = session.connect_user().await?;
-            server_state.lock().unwrap().users.insert(user.id, user);
+            server_state.lock().unwrap().add_user(user);
             session.run(server_state).await?;
             anyhow::Ok(())
         };
