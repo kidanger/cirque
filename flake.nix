@@ -26,14 +26,13 @@
         packages = {
           default = naersk'.buildPackage {
             src = ./.;
-            nativeBuildInputs = with pkgs; [openssl pkg-config];
           };
         };
 
         # For `nix develop`
         devShells = {
           default = pkgs.mkShell {
-            nativeBuildInputs = with pkgs; [rustc cargo rustfmt clippy openssl pkg-config];
+            nativeBuildInputs = with pkgs; [rustc cargo rustfmt clippy];
           };
         };
       }
