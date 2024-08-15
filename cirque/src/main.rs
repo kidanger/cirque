@@ -4,7 +4,7 @@ use std::io::BufReader;
 use std::sync::{Arc, Mutex};
 use std::{collections::HashMap, fs::File};
 use std::{path::PathBuf, str::FromStr};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::AsyncWriteExt;
 use transport::{TCPListener, TLSListener};
 
 mod client_to_server;
@@ -82,16 +82,11 @@ impl ConnectingSession {
         let mut chosen_user = None;
         let mut ping_token = None;
         let mut sp = StreamParser::default();
-        // TODO: this should be handled by StreamParser
-        let mut buffer = Vec::with_capacity(512);
 
         'outer: loop {
-            buffer.clear();
-            self.stream.read_buf(&mut buffer).await?;
+            sp.feed_from_stream(&mut self.stream).await?;
 
-            anyhow::ensure!(!buffer.is_empty(), "stream ended");
-
-            let mut iter = sp.try_read(&buffer);
+            let mut iter = sp.consume_iter();
             while let Some(message) = iter.next() {
                 let message = match message {
                     Ok(m) => m,
@@ -161,14 +156,12 @@ struct Session {
 }
 
 impl Session {
-    async fn process_buffer(
+    fn process_buffer(
         &mut self,
         sp: &mut StreamParser,
         server_state: &SharedServerState,
-        buffer: &[u8],
     ) -> anyhow::Result<bool> {
-        // TODO: this should be handled by StreamParser
-        let mut iter = sp.try_read(buffer);
+        let mut iter = sp.consume_iter();
         while let Some(message) = iter.next() {
             let message = match message {
                 Ok(m) => m,
@@ -233,14 +226,10 @@ impl Session {
 
     pub async fn run(mut self, server_state: SharedServerState) -> anyhow::Result<()> {
         let mut sp = StreamParser::default();
-        let mut buffer = Vec::with_capacity(512);
         loop {
-            buffer.clear();
             tokio::select! {
-                result = self.stream.read_buf(&mut buffer) => {
-                    let _ = result?;
-                    anyhow::ensure!(!buffer.is_empty(), "stream ended");
-                    let quit = self.process_buffer(&mut sp, &server_state, &buffer).await?;
+                _ = sp.feed_from_stream(&mut self.stream) => {
+                    let quit = self.process_buffer(&mut sp, &server_state)?;
                     if quit {
                         break;
                     }
