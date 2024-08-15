@@ -1,7 +1,6 @@
 use ::lending_iterator::prelude::*;
 pub use lending_iterator::LendingIterator;
 use slice_ring_buffer::SliceRingBuffer;
-use tokio::io::AsyncRead;
 
 use crate::{parse_message, Message};
 
@@ -23,36 +22,32 @@ impl StreamParser {
         self.buffer.extend_from_slice(buf);
     }
 
-    pub async fn feed_from_stream(&mut self, stream: impl AsyncRead) -> anyhow::Result<()> {
-        assert!(self.buffer.len() < self.buffer.capacity());
-
-        // SAFETY: there is still space in the buffer since it is many times larger than an IRC
-        // maximum message length
-        let rest = unsafe { self.buffer.tail_head_slice() };
-        assert!(!rest.is_empty());
-
-        // https://users.rust-lang.org/t/how-to-async-read-into-mut-mem-maybeuninit-u8-with-tokio/77743/2
-        let mut read_buf = tokio::io::ReadBuf::uninit(rest);
-        let mut pinned = std::pin::pin!(stream);
-        std::future::poll_fn(|cx| pinned.as_mut().poll_read(cx, &mut read_buf)).await?;
-
-        let count = read_buf.filled().len();
-        anyhow::ensure!(count > 0, "stream ended");
-        assert!(count <= rest.len());
-
-        // SAFETY: we can move the tail up to rest.len(), as count is <= rest.len()
-        // also elements were initialized by the poll_read
-        unsafe {
-            self.buffer.move_tail(count as isize);
-        }
-
-        Ok(())
-    }
-
     pub fn consume_iter(&mut self) -> MessageIterator {
         MessageIterator {
             stream_parser: self,
         }
+    }
+}
+
+unsafe impl bytes::BufMut for StreamParser {
+    fn remaining_mut(&self) -> usize {
+        self.buffer.capacity() - self.buffer.len()
+    }
+
+    unsafe fn advance_mut(&mut self, count: usize) {
+        // SAFETY: we can move the tail up to remaining_mut
+        // also elements were initialized by the caller of chunk_mut
+        unsafe {
+            self.buffer.move_tail(count as isize);
+        }
+    }
+
+    fn chunk_mut(&mut self) -> &mut bytes::buf::UninitSlice {
+        // SAFETY:
+        // - the data won't be mutated as it is used only by MessageIterator which hold the mutable
+        //   reference to StreamParser, hence the owned buffer can't be mutated
+        // - unclear what else could be needed from tail_head_slice
+        unsafe { self.buffer.tail_head_slice() }.into()
     }
 }
 

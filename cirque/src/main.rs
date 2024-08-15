@@ -1,10 +1,10 @@
 use cirque_parser::stream::{LendingIterator, StreamParser};
 use std::collections::HashSet;
+use std::fs::File;
 use std::io::BufReader;
 use std::sync::{Arc, Mutex};
-use std::{collections::HashMap, fs::File};
 use std::{path::PathBuf, str::FromStr};
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use transport::{TCPListener, TLSListener};
 
 mod client_to_server;
@@ -84,7 +84,8 @@ impl ConnectingSession {
         let mut sp = StreamParser::default();
 
         'outer: loop {
-            sp.feed_from_stream(&mut self.stream).await?;
+            let received = self.stream.read_buf(&mut sp).await?;
+            anyhow::ensure!(received > 0, "stream ended");
 
             let mut iter = sp.consume_iter();
             while let Some(message) = iter.next() {
@@ -228,8 +229,10 @@ impl Session {
         let mut sp = StreamParser::default();
         loop {
             tokio::select! {
-                result = sp.feed_from_stream(&mut self.stream) => {
-                    result?;
+                result = self.stream.read_buf(&mut sp) => {
+                    let received = result?;
+                    anyhow::ensure!(received > 0, "stream ended");
+
                     let quit = self.process_buffer(&mut sp, &server_state)?;
                     if quit {
                         break;
