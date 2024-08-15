@@ -13,6 +13,7 @@ mod server_state;
 mod server_to_client;
 mod transport;
 use crate::server_state::ServerState;
+use crate::server_state::ServerStateError;
 use crate::transport::AnyStream;
 use crate::transport::Listener;
 
@@ -212,10 +213,17 @@ impl Session {
                     );
                 }
                 client_to_server::Message::Topic(target, content) => {
-                    server_state
-                        .lock()
-                        .unwrap()
-                        .user_topic(self.user_id, &target, &content);
+                    let _result =
+                        server_state
+                            .lock()
+                            .unwrap()
+                            .user_topic(self.user_id, &target, &content);
+                    if _result.is_err() {
+                        server_state
+                            .lock()
+                            .unwrap()
+                            .send_error(self.user_id, _result.err().unwrap())
+                    }
                 }
                 _ => {
                     println!("illegal command from connected client");

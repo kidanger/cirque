@@ -8,6 +8,19 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use std::collections::HashMap;
 
+use anyhow::Ok;
+use thiserror::Error;
+
+#[derive(Error, Debug, Clone)]
+pub enum ServerStateError {
+    #[error("442 {client:?} {channel:?} :You're not on that channel")]
+    ErrNotonchannel { client: String, channel: String },
+    #[error("403 {client:?} {channel:?} ::No such channel")]
+    ErrNosuchchannel { client: String, channel: String },
+    #[error("unknown error")]
+    Unknown,
+}
+
 enum LookupResult<'r> {
     Channel(&'r Channel),
     User(&'r User),
@@ -27,6 +40,11 @@ impl ServerState {
             connecting_users: vec![],
             channels: Default::default(),
         }
+    }
+
+    pub fn send_error(&mut self, user_id: UserID, error: anyhow::Error) {
+        let user = &self.users[&user_id];
+        user.send(&server_to_client::Message::Err(error.to_string()));
     }
 
     pub fn user_joins_channel(&mut self, user_id: UserID, channel_name: &str) {
@@ -164,12 +182,21 @@ impl ServerState {
         user.send(&message);
     }
 
-    pub fn user_topic(&mut self, user_id: UserID, target: &str, content: &Option<Vec<u8>>) {
+    pub fn user_topic(
+        &mut self,
+        user_id: UserID,
+        target: &str,
+        content: &Option<Vec<u8>>,
+    ) -> Result<(), anyhow::Error> {
         if self.users.values().any(|u| u.nickname == target) {
-            //TODO: ERR_NOTONCHANNEL
-            return;
+            let user = &self.users[&user_id];
+
+            return Err(ServerStateError::ErrNotonchannel {
+                client: user.nickname.clone(),
+                channel: target.into(),
+            }
+            .into());
         }
-        dbg!(target);
 
         if let Some(channel) = self.channels.get_mut(target) {
             let user = &self.users[&user_id];
@@ -196,6 +223,7 @@ impl ServerState {
                             },
                         ))
                     });
+                Ok(())
             } else {
                 //view a current topic
                 let message = server_to_client::Message::Topic(server_to_client::TopicMessage {
@@ -204,9 +232,15 @@ impl ServerState {
                     topic: Some(channel.topic.clone()),
                 });
                 user.send(&message);
+                Ok(())
             }
         } else {
-            // TODO: ERR_NOSUCHCHANNEL
+            let user = &self.users[&user_id];
+            Err(ServerStateError::ErrNosuchchannel {
+                client: user.nickname.clone(),
+                channel: target.into(),
+            }
+            .into())
         }
     }
 

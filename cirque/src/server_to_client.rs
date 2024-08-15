@@ -1,5 +1,6 @@
 use tokio::io::AsyncWriteExt;
 
+use crate::server_state::ServerStateError;
 use crate::transport;
 use crate::ChannelID;
 use crate::Topic;
@@ -63,6 +64,7 @@ pub enum Message {
     ErrCannotSendToChan(String),
     ErrNoSuchNick(String),
     ErrNoTextToSend(),
+    Err(String),
 }
 
 impl Message {
@@ -184,6 +186,11 @@ impl Message {
             }
             Message::ErrNoTextToSend() => {
                 stream.write_all(b":srv 412 :No text to send\r\n").await?;
+            }
+            Message::Err(error) => {
+                stream.write_all(b":srv ").await?;
+                stream.write_all(error.as_bytes()).await?;
+                stream.write_all(b"\r\n").await?;
             }
         }
 
