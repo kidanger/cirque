@@ -16,39 +16,40 @@ pub enum Message {
     Unknown,
 }
 
-impl TryFrom<cirque_parser::Message> for Message {
+impl TryFrom<cirque_parser::Message<'_>> for Message {
     type Error = anyhow::Error;
 
     fn try_from(value: cirque_parser::Message) -> Result<Self, Self::Error> {
-        let message = match value.command().as_slice() {
+        let params = value.parameters();
+        let message = match value.command() {
             b"CAP" => Message::Cap,
-            b"NICK" => Message::Nick(String::from_utf8(value.parameters()[0].clone())?),
-            b"USER" => Message::User(String::from_utf8(value.parameters()[0].clone())?),
-            b"PONG" => Message::Pong(value.parameters()[0].clone()),
+            b"NICK" => Message::Nick(String::from_utf8(params[0].to_vec())?),
+            b"USER" => Message::User(String::from_utf8(params[0].to_vec())?),
+            b"PONG" => Message::Pong(params[0].to_vec()),
             b"JOIN" => {
-                let channels = value.parameters()[0]
+                let channels = params[0]
                     .split(|&c| c == b',')
                     .flat_map(|s| String::from_utf8(s.to_owned()))
                     .collect::<Vec<_>>();
                 Message::Join(channels)
             }
             b"TOPIC" => Message::Topic(
-                String::from_utf8(value.parameters()[0].clone())?,
-                value.parameters().get(1).cloned(),
+                String::from_utf8(params[0].to_vec())?,
+                params.get(1).map(|e| e.to_vec()),
             ),
-            b"PING" => Message::Ping(value.parameters()[0].clone()),
-            b"MODE" => Message::AskModeChannel(String::from_utf8(value.parameters()[0].clone())?),
+            b"PING" => Message::Ping(params[0].to_vec()),
+            b"MODE" => Message::AskModeChannel(String::from_utf8(params[0].to_vec())?),
             b"PRIVMSG" => {
-                let target = String::from_utf8(value.parameters()[0].clone())?;
-                let content = value.parameters()[1].clone();
+                let target = String::from_utf8(params[0].to_vec())?;
+                let content = params[1].to_vec();
                 Message::PrivMsg(target, content)
             }
             b"PART" => {
-                let channels = value.parameters()[0]
+                let channels = params[0]
                     .split(|&c| c == b',')
                     .flat_map(|s| String::from_utf8(s.to_owned()))
                     .collect::<Vec<_>>();
-                let reason = value.parameters().get(1).cloned();
+                let reason = params.get(1).map(|e| e.to_vec());
                 Message::Part(channels, reason)
             }
             b"QUIT" => Message::Quit,

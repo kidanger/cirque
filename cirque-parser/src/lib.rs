@@ -19,32 +19,32 @@ pub mod stream;
 
 /// Note: Server sources (used for server-to-server communications) are not handled.
 #[derive(Debug, PartialEq, Eq)]
-pub struct Source {
-    nickname: Vec<u8>,
-    user: Option<Vec<u8>>,
-    host: Option<Vec<u8>>,
+pub struct Source<'s> {
+    nickname: &'s [u8],
+    user: Option<&'s [u8]>,
+    host: Option<&'s [u8]>,
 }
 
-pub type Command = Vec<u8>;
-pub type Parameters = SmallVec<[Vec<u8>; 15]>;
+pub type Command = [u8];
+pub type Parameters<'a> = SmallVec<[&'a [u8]; 15]>;
 
 #[derive(Debug)]
-pub struct Message {
-    source: Option<Source>,
-    command: Command,
-    parameters: Parameters,
+pub struct Message<'m> {
+    source: Option<Source<'m>>,
+    command: &'m Command,
+    parameters: Parameters<'m>,
 }
 
-impl Message {
-    pub fn source(&self) -> &Option<Source> {
+impl<'m> Message<'m> {
+    pub fn source(&self) -> &Option<Source<'m>> {
         &self.source
     }
 
-    pub fn command(&self) -> &Command {
-        &self.command
+    pub fn command(&self) -> &'m Command {
+        self.command
     }
 
-    pub fn parameters(&self) -> &Parameters {
+    pub fn parameters(&self) -> &Parameters<'m> {
         &self.parameters
     }
 }
@@ -93,9 +93,9 @@ fn parse_source_inner(buf: &[u8]) -> IResult<&[u8], Source> {
     let (buf, host) = opt(preceded(char('@'), host))(buf)?;
 
     let source = Source {
-        nickname: nickname.into(),
-        user: user.map(Into::into),
-        host: host.map(Into::into),
+        nickname,
+        user,
+        host,
     };
     Ok((buf, source))
 }
@@ -110,12 +110,12 @@ fn parse_source(buf: &[u8]) -> IResult<&[u8], Source> {
 }
 
 // command ::= letter* / 3digit
-fn parse_command(buf: &[u8]) -> IResult<&[u8], Command> {
+fn parse_command(buf: &[u8]) -> IResult<&[u8], &Command> {
     let letters = take_while1(is_alphabetic);
     let digits = take_while_m_n(3, 3, is_digit);
 
     let (buf, command) = alt((letters, digits))(buf)?;
-    Ok((buf, command.into()))
+    Ok((buf, command))
 }
 
 fn parse_parameters(mut buf: &[u8]) -> IResult<&[u8], Parameters> {
@@ -132,11 +132,11 @@ fn parse_parameters(mut buf: &[u8]) -> IResult<&[u8], Parameters> {
 
         buf = if peek(tag::<_, _, nom::error::Error<&[u8]>>(b":"))(buf).is_ok() {
             let (buf_, rest) = preceded(tag(b":"), rest)(buf)?;
-            params.push(rest.into());
+            params.push(rest);
             buf_
         } else {
             let (buf_, param) = take_till(is_space)(buf)?;
-            params.push(param.into());
+            params.push(param);
             buf_
         }
     }
@@ -159,14 +159,6 @@ pub fn parse_message(buf: &[u8]) -> IResult<&[u8], Message> {
             parameters,
         },
     ))
-}
-
-pub fn parse_one_message(buf: Vec<u8>) -> Option<Message> {
-    if let Ok((_, message)) = parse_message(&buf) {
-        Some(message)
-    } else {
-        None
-    }
 }
 
 #[cfg(test)]
@@ -211,7 +203,7 @@ mod tests {
         #[test]
         fn success_3digit() {
             let (buf, cmd) = all_consuming(parse_command)(b"000").unwrap();
-            dbg!((buf, &cmd));
+            dbg!((buf, cmd));
             assert!(buf.is_empty());
             assert_eq!(cmd, b"000");
         }
@@ -233,8 +225,8 @@ mod tests {
             assert_eq!(
                 cmd,
                 Source {
-                    nickname: b"nick".into(),
-                    user: Some(b"user".into()),
+                    nickname: b"nick",
+                    user: Some(b"user"),
                     host: None,
                 }
             );
@@ -247,9 +239,9 @@ mod tests {
             assert_eq!(
                 cmd,
                 Source {
-                    nickname: b"nick".into(),
+                    nickname: b"nick",
                     user: None,
-                    host: Some(b"host".into())
+                    host: Some(b"host")
                 }
             );
             assert!(buf.is_empty());
@@ -261,9 +253,9 @@ mod tests {
             assert_eq!(
                 cmd,
                 Source {
-                    nickname: b"nick".into(),
-                    user: Some(b"user".into()),
-                    host: Some(b"host".into())
+                    nickname: b"nick",
+                    user: Some(b"user"),
+                    host: Some(b"host")
                 }
             );
             assert!(buf.is_empty());

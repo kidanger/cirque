@@ -1,4 +1,4 @@
-use cirque_parser::stream::StreamParser;
+use cirque_parser::stream::{LendingIterator, StreamParser};
 use std::collections::HashSet;
 use std::io::BufReader;
 use std::sync::{Arc, Mutex};
@@ -266,6 +266,7 @@ impl ConnectingSession {
         let mut chosen_user = None;
         let mut ping_token = None;
         let mut sp = StreamParser::default();
+        // TODO: this should be handled by StreamParser
         let mut buffer = Vec::with_capacity(512);
 
         'outer: loop {
@@ -274,9 +275,13 @@ impl ConnectingSession {
 
             anyhow::ensure!(!buffer.is_empty(), "stream ended");
 
-            for message in sp.try_read(&buffer) {
-                let message = message?;
-                let message = message.try_into()?;
+            let mut iter = sp.try_read(&buffer);
+            while let Some(message) = iter.next() {
+                let message = match message {
+                    Ok(m) => m,
+                    Err(e) => anyhow::bail!(e.to_string()),
+                };
+                let message = client_to_server::Message::try_from(message)?;
                 dbg!(&message);
 
                 match message {
@@ -346,9 +351,14 @@ impl Session {
         server_state: &SharedServerState,
         buffer: &[u8],
     ) -> anyhow::Result<bool> {
-        for message in sp.try_read(buffer) {
-            let message = message?;
-            let message = message.try_into()?;
+        // TODO: this should be handled by StreamParser
+        let mut iter = sp.try_read(buffer);
+        while let Some(message) = iter.next() {
+            let message = match message {
+                Ok(m) => m,
+                Err(e) => anyhow::bail!(e.to_string()),
+            };
+            let message = client_to_server::Message::try_from(message)?;
             dbg!(&message);
 
             match message {
