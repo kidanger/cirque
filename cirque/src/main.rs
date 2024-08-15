@@ -228,7 +228,8 @@ impl Session {
         let mut sp = StreamParser::default();
         loop {
             tokio::select! {
-                _ = sp.feed_from_stream(&mut self.stream) => {
+                result = sp.feed_from_stream(&mut self.stream) => {
+                    result?;
                     let quit = self.process_buffer(&mut sp, &server_state)?;
                     if quit {
                         break;
