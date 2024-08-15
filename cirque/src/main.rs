@@ -203,9 +203,10 @@ impl Session {
                         .user_asks_channel_mode(self.user_id, &channel);
                 }
                 client_to_server::Message::Ping(token) => {
-                    let msg =
-                        server_to_client::Message::Pong(server_to_client::PongMessage { token });
-                    msg.write_to(&mut self.stream).await?;
+                    server_state
+                        .lock()
+                        .unwrap()
+                        .user_pings(self.user_id, &token);
                 }
                 client_to_server::Message::Pong(_) => {}
                 client_to_server::Message::Quit => return Ok(true),

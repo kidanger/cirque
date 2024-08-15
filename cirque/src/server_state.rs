@@ -213,4 +213,12 @@ impl ServerState {
     pub fn add_user(&mut self, user: User) {
         self.users.insert(user.id, user);
     }
+
+    pub fn user_pings(&mut self, user_id: UserID, token: &[u8]) {
+        let user = &self.users[&user_id];
+        let message = server_to_client::Message::Pong(server_to_client::PongMessage {
+            token: token.to_vec(),
+        });
+        user.send(&message);
+    }
 }
