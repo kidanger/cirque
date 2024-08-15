@@ -2,6 +2,7 @@ use tokio::io::AsyncWriteExt;
 
 use crate::transport;
 use crate::ChannelID;
+use crate::Topic;
 
 #[derive(Debug, Clone)]
 pub struct JoinMessage {
@@ -19,7 +20,8 @@ pub struct NamesMessage {
 pub struct TopicMessage {
     pub nickname: String,
     pub channel: String,
-    pub topic: Option<Vec<u8>>,
+
+    pub topic: Option<Topic>,
 }
 
 #[derive(Debug, Clone)]
@@ -103,15 +105,26 @@ impl Message {
                     stream.write_all(b" ").await?;
                     stream.write_all(channel.as_bytes()).await?;
                     stream.write_all(b" :").await?;
-                    stream.write_all(topic).await?;
+                    stream.write_all(&topic.content).await?;
+                    stream.write_all(b"\r\n").await?;
+
+                    stream.write_all(b":srv 333 ").await?;
+                    stream.write_all(nickname.as_bytes()).await?;
+                    stream.write_all(b" ").await?;
+                    stream.write_all(channel.as_bytes()).await?;
+                    stream.write_all(b" ").await?;
+                    stream.write_all(topic.from_nickname.as_bytes()).await?;
+                    stream.write_all(b" ").await?;
+                    stream.write_all(topic.ts.to_string().as_bytes()).await?;
+                    stream.write_all(b"\r\n").await?;
                 } else {
                     stream.write_all(b":srv 331 ").await?;
                     stream.write_all(nickname.as_bytes()).await?;
                     stream.write_all(b" ").await?;
                     stream.write_all(channel.as_bytes()).await?;
                     stream.write_all(b" :No topic is set").await?;
+                    stream.write_all(b"\r\n").await?;
                 }
-                stream.write_all(b"\r\n").await?;
             }
             Message::Pong(PongMessage { token }) => {
                 stream.write_all(b"PONG :").await?;

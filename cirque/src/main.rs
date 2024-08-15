@@ -50,10 +50,24 @@ struct ConnectingUser {
     nick: Option<String>,
     user: Option<String>,
 }
+use std::time::{SystemTime, UNIX_EPOCH};
+
+#[derive(Debug, Default, Clone)]
+struct Topic {
+    pub content: Vec<u8>,
+    pub ts: u64,
+    pub from_nickname: String,
+}
+
+impl Topic {
+    pub fn is_valid(&self) -> bool {
+        !self.content.is_empty() && self.ts > 0
+    }
+}
 
 #[derive(Debug, Default)]
 struct Channel {
-    topic: Vec<u8>,
+    topic: Topic,
     users: HashSet<UserID>,
 }
 
@@ -107,7 +121,7 @@ impl ServerState {
         let message = server_to_client::Message::Topic(server_to_client::TopicMessage {
             nickname: user.nickname.to_owned(),
             channel: channel_name.to_owned(),
-            topic: if !channel.topic.is_empty() {
+            topic: if channel.topic.is_valid() {
                 Some(channel.topic.clone())
             } else {
                 None
@@ -227,20 +241,26 @@ impl ServerState {
 
             //Set a new topic
             if let Some(content) = content {
-                channel.topic.clone_from(content);
-
-                let message = server_to_client::Message::Topic(server_to_client::TopicMessage {
-                    nickname: user.nickname.clone(),
-                    channel: target.into(),
-                    topic: Some(content.clone()),
-                });
-                dbg!(&message);
+                channel.topic.content.clone_from(content);
+                channel.topic.ts = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs();
+                channel.topic.from_nickname.clone_from(&user.nickname);
 
                 channel
                     .users
                     .iter()
                     .flat_map(|u| self.users.get(u))
-                    .for_each(|u| u.send(&message));
+                    .for_each(|u| {
+                        u.send(&server_to_client::Message::Topic(
+                            server_to_client::TopicMessage {
+                                nickname: user.nickname.clone(),
+                                channel: target.into(),
+                                topic: Some(channel.topic.clone()),
+                            },
+                        ))
+                    });
             } else {
                 //view a current topic
                 let message = server_to_client::Message::Topic(server_to_client::TopicMessage {
