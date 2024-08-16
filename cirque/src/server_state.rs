@@ -165,7 +165,10 @@ impl ServerState {
         }
 
         let Some(obj) = self.lookup_target(target) else {
-            let message = server_to_client::Message::ErrNoSuchNick(target.to_string());
+            let message = server_to_client::Message::ErrNoSuchNick(
+                user.nickname.to_string(),
+                target.to_string(),
+            );
             user.send(&message);
             return;
         };
@@ -182,6 +185,45 @@ impl ServerState {
                     let message =
                         server_to_client::Message::ErrCannotSendToChan(target.to_string());
                     user.send(&message);
+                    return;
+                }
+
+                channel
+                    .users
+                    .iter()
+                    .filter(|&uid| *uid != user_id)
+                    .flat_map(|u| self.users.get(u))
+                    .for_each(|u| u.send(&message));
+            }
+            LookupResult::User(target_user) => {
+                target_user.send(&message);
+            }
+        }
+    }
+
+    pub(crate) fn user_notices_target(&mut self, user_id: UserID, target: &str, content: &[u8]) {
+        let user = &self.users[&user_id];
+
+        if content.is_empty() {
+            // NOTICE shouldn't receive an error
+            return;
+        }
+
+        let Some(obj) = self.lookup_target(target) else {
+            // NOTICE shouldn't receive an error
+            return;
+        };
+
+        let message = server_to_client::Message::Notice(server_to_client::NoticeMessage {
+            from_user: user.fullspec(),
+            target: target.to_string(),
+            content: content.to_vec(),
+        });
+
+        match obj {
+            LookupResult::Channel(channel) => {
+                if !channel.users.contains(&user_id) {
+                    // NOTICE shouldn't receive an error
                     return;
                 }
 

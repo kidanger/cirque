@@ -214,6 +214,13 @@ impl Session {
                         &content,
                     );
                 }
+                client_to_server::Message::Notice(target, content) => {
+                    server_state.lock().unwrap().user_notices_target(
+                        self.user_id,
+                        &target,
+                        &content,
+                    );
+                }
                 client_to_server::Message::Topic(target, content) => {
                     let mut locked_server_state = server_state.lock().unwrap();
                     let result = locked_server_state.user_topic(self.user_id, &target, &content);

@@ -45,6 +45,13 @@ pub struct PrivMsgMessage {
 }
 
 #[derive(Debug, Clone)]
+pub struct NoticeMessage {
+    pub from_user: String,
+    pub target: ChannelID,
+    pub content: Vec<u8>,
+}
+
+#[derive(Debug, Clone)]
 pub struct PartMessage {
     pub user_fullspec: String,
     pub channel: String,
@@ -59,10 +66,11 @@ pub enum Message {
     Pong(PongMessage),
     ChannelMode(ChannelModeMessage),
     PrivMsg(PrivMsgMessage),
+    Notice(NoticeMessage),
     Part(PartMessage),
 
     ErrCannotSendToChan(String),
-    ErrNoSuchNick(String),
+    ErrNoSuchNick(String, String),
     ErrNoTextToSend(),
     Err(String),
 }
@@ -159,6 +167,19 @@ impl Message {
                 stream.write_all(content).await?;
                 stream.write_all(b"\r\n").await?;
             }
+            Message::Notice(NoticeMessage {
+                from_user,
+                target,
+                content,
+            }) => {
+                stream.write_all(b":").await?;
+                stream.write_all(from_user.as_bytes()).await?;
+                stream.write_all(b" NOTICE ").await?;
+                stream.write_all(target.as_bytes()).await?;
+                stream.write_all(b" :").await?;
+                stream.write_all(content).await?;
+                stream.write_all(b"\r\n").await?;
+            }
             Message::Part(PartMessage {
                 user_fullspec,
                 channel,
@@ -179,8 +200,10 @@ impl Message {
                 stream.write_all(channel.as_bytes()).await?;
                 stream.write_all(b" :Cannot send to channel\r\n").await?;
             }
-            Message::ErrNoSuchNick(target) => {
+            Message::ErrNoSuchNick(nickname, target) => {
                 stream.write_all(b":srv 401 ").await?;
+                stream.write_all(nickname.as_bytes()).await?;
+                stream.write_all(b" ").await?;
                 stream.write_all(target.as_bytes()).await?;
                 stream.write_all(b" :No such nick/channel\r\n").await?;
             }

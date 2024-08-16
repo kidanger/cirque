@@ -11,6 +11,7 @@ pub enum Message {
     Topic(ChannelID, Option<Vec<u8>>),
     AskModeChannel(ChannelID),
     PrivMsg(String, Vec<u8>),
+    Notice(String, Vec<u8>),
     Part(Vec<ChannelID>, Option<Vec<u8>>),
     Quit,
     Unknown,
@@ -43,6 +44,11 @@ impl TryFrom<cirque_parser::Message<'_>> for Message {
                 let target = String::from_utf8(params[0].to_vec())?;
                 let content = params[1].to_vec();
                 Message::PrivMsg(target, content)
+            }
+            b"NOTICE" => {
+                let target = String::from_utf8(params[0].to_vec())?;
+                let content = params[1].to_vec();
+                Message::Notice(target, content)
             }
             b"PART" => {
                 let channels = params[0]
