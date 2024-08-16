@@ -2,7 +2,8 @@ use ::lending_iterator::prelude::*;
 pub use lending_iterator::LendingIterator;
 use slice_ring_buffer::SliceRingBuffer;
 
-use crate::{parse_message, Message};
+use crate::parser::parse_message;
+use crate::Message;
 
 #[derive(Clone, Debug)]
 pub struct ParsingError(String);

@@ -1,10 +1,10 @@
-use cirque_parser::stream::{LendingIterator, StreamParser};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::server_state::{ServerStateError, SharedServerState};
 use crate::transport::AnyStream;
 use crate::types::{User, UserID};
 use crate::{client_to_server, server_to_client, ServerState};
+use cirque_parser::{LendingIterator, StreamParser};
 
 pub(crate) struct ConnectingSession {
     stream: AnyStream,
