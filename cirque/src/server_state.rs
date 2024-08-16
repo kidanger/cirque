@@ -23,6 +23,8 @@ pub enum ServerStateError {
     ErrNosuchchannel { client: String, channel: String },
     #[error("433 {client} {nickname} :Nickname is already in use")]
     ErrNicknameinuse { client: String, nickname: String },
+    #[error("451 {client} :You have not registered")]
+    ErrNotRegistered { client: String },
     #[error("unknown error")]
     Unknown,
 }

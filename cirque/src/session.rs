@@ -8,11 +8,15 @@ use crate::{client_to_server, server_to_client};
 
 pub(crate) struct ConnectingSession {
     stream: AnyStream,
+    stream_parser: StreamParser,
 }
 
 impl ConnectingSession {
     pub(crate) fn new(stream: AnyStream) -> Self {
-        Self { stream }
+        Self {
+            stream,
+            stream_parser: Default::default(),
+        }
     }
 }
 
@@ -23,14 +27,12 @@ impl ConnectingSession {
     ) -> Result<(Session, User), anyhow::Error> {
         let mut chosen_nick = None;
         let mut chosen_user = None;
-        let mut ping_token = None;
-        let mut sp = StreamParser::default();
 
         'outer: loop {
-            let received = self.stream.read_buf(&mut sp).await?;
+            let received = self.stream.read_buf(&mut self.stream_parser).await?;
             anyhow::ensure!(received > 0, "stream ended");
 
-            let mut iter = sp.consume_iter();
+            let mut iter = self.stream_parser.consume_iter();
             while let Some(message) = iter.next() {
                 let message = match message {
                     Ok(m) => m,
@@ -57,35 +59,28 @@ impl ConnectingSession {
                         }
                     }
                     client_to_server::Message::User(user) => chosen_user = Some(user),
-                    client_to_server::Message::Pong(token) => {
-                        if Some(token) == ping_token {
-                            break 'outer;
-                        }
-                        break;
-                    }
                     client_to_server::Message::Quit => {
                         todo!();
                     }
+                    client_to_server::Message::Unknown => {}
                     _ => {
+                        // valid commands should return ErrNotRegistered when not registered
+                        let msg = server_to_client::Message::Err(
+                            crate::server_state::ServerStateError::ErrNotRegistered {
+                                client: chosen_nick.unwrap_or("*".to_string()),
+                            }
+                            .to_string(),
+                        );
+                        msg.write_to(&mut self.stream).await?;
                         anyhow::bail!("illegal command during connection");
                     }
                 };
-            }
 
-            if chosen_user.is_some() && chosen_nick.is_some() {
-                let token = b"something".to_vec();
-                self.stream.write_all(b"PING :").await?;
-                self.stream.write_all(&token).await?;
-                self.stream.write_all(b"\r\n").await?;
-                ping_token = Some(token);
+                if chosen_user.is_some() && chosen_nick.is_some() {
+                    break 'outer;
+                }
             }
         }
-
-        self.stream.write_all(b":srv 001 ").await?;
-        self.stream
-            .write_all(chosen_nick.as_ref().unwrap().as_bytes())
-            .await?;
-        self.stream.write_all(b" :welcome\r\n").await?;
 
         let user_id = UserID::generate();
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
@@ -95,8 +90,64 @@ impl ConnectingSession {
             nickname: chosen_nick.unwrap(),
             mailbox: tx,
         };
+
+        self.stream.write_all(b":srv 001 ").await?;
+        self.stream.write_all(user.nickname.as_bytes()).await?;
+        self.stream
+            .write_all(b" :Welcome to the Internet Relay Network ")
+            .await?;
+        self.stream.write_all(user.fullspec().as_bytes()).await?;
+        self.stream.write_all(b"\r\n").await?;
+
+        self.stream.write_all(b":srv 002 ").await?;
+        self.stream.write_all(user.nickname.as_bytes()).await?;
+        self.stream
+            .write_all(b" :Your host is 'srv', running cirque.\r\n")
+            .await?;
+
+        self.stream.write_all(b":srv 003 ").await?;
+        self.stream.write_all(user.nickname.as_bytes()).await?;
+        self.stream
+            .write_all(b" :This server was created <datetime>.\r\n")
+            .await?;
+
+        self.stream.write_all(b":srv 004 ").await?;
+        self.stream.write_all(user.nickname.as_bytes()).await?;
+        self.stream.write_all(b" srv 0 + +\r\n").await?;
+
+        self.stream.write_all(b":srv 251 ").await?;
+        self.stream.write_all(user.nickname.as_bytes()).await?;
+        self.stream
+            .write_all(b" :There are N users and 0 invisible on 1 servers\r\n")
+            .await?;
+
+        self.stream.write_all(b":srv 252 ").await?;
+        self.stream.write_all(user.nickname.as_bytes()).await?;
+        self.stream.write_all(b" 0 :operator(s) online\r\n").await?;
+
+        self.stream.write_all(b":srv 253 ").await?;
+        self.stream.write_all(user.nickname.as_bytes()).await?;
+        self.stream
+            .write_all(b" 0 :unknown connection(s)\r\n")
+            .await?;
+
+        self.stream.write_all(b":srv 254 ").await?;
+        self.stream.write_all(user.nickname.as_bytes()).await?;
+        self.stream.write_all(b" 0 :channels formed\r\n").await?;
+
+        self.stream.write_all(b":srv 255 ").await?;
+        self.stream.write_all(user.nickname.as_bytes()).await?;
+        self.stream
+            .write_all(b" :I have 1 clients and 0 servers\r\n")
+            .await?;
+
+        self.stream.write_all(b":srv 422 ").await?;
+        self.stream.write_all(user.nickname.as_bytes()).await?;
+        self.stream.write_all(b" :MOTD File is missing\r\n").await?;
+
         let session = Session {
             stream: self.stream,
+            stream_parser: self.stream_parser,
             user_id,
             mailbox: rx,
         };
@@ -107,17 +158,14 @@ impl ConnectingSession {
 
 pub(crate) struct Session {
     stream: AnyStream,
+    stream_parser: StreamParser,
     user_id: UserID,
     mailbox: tokio::sync::mpsc::UnboundedReceiver<server_to_client::Message>,
 }
 
 impl Session {
-    fn process_buffer(
-        &mut self,
-        sp: &mut StreamParser,
-        server_state: &SharedServerState,
-    ) -> anyhow::Result<bool> {
-        let mut iter = sp.consume_iter();
+    fn process_buffer(&mut self, server_state: &SharedServerState) -> anyhow::Result<bool> {
+        let mut iter = self.stream_parser.consume_iter();
         while let Some(message) = iter.next() {
             let message = match message {
                 Ok(m) => m,
@@ -182,14 +230,16 @@ impl Session {
     }
 
     pub(crate) async fn run(mut self, server_state: SharedServerState) -> anyhow::Result<()> {
-        let mut sp = StreamParser::default();
-        loop {
+        // first, process potential messages in the stream parser, leftovers from the ConnectingSession
+        let mut quit = self.process_buffer(&server_state)?;
+
+        while !quit {
             tokio::select! {
-                result = self.stream.read_buf(&mut sp) => {
+                result = self.stream.read_buf(&mut self.stream_parser) => {
                     let received = result?;
                     anyhow::ensure!(received > 0, "stream ended");
 
-                    let quit = self.process_buffer(&mut sp, &server_state)?;
+                    quit = self.process_buffer(&server_state)?;
                     if quit {
                         break;
                     }
