@@ -31,4 +31,5 @@ jobs:
 
         run="pytest chirc --disable-pytest-warnings -vv --chirc-exe target/debug/chirc-compat --chirc-category "
         $run BASIC_CONNECTION
+        $run ERR_UNKNOWN
         $run CHANNEL_JOIN

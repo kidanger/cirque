@@ -14,7 +14,7 @@ pub enum Message {
     Notice(String, Vec<u8>),
     Part(Vec<ChannelID>, Option<Vec<u8>>),
     Quit,
-    Unknown,
+    Unknown(String),
 }
 
 impl TryFrom<cirque_parser::Message<'_>> for Message {
@@ -59,7 +59,10 @@ impl TryFrom<cirque_parser::Message<'_>> for Message {
                 Message::Part(channels, reason)
             }
             b"QUIT" => Message::Quit,
-            _ => Message::Unknown,
+            cmd => {
+                let cmd = String::from_utf8(cmd.to_vec())?;
+                Message::Unknown(cmd)
+            }
         };
         Ok(message)
     }

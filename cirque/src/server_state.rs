@@ -25,6 +25,8 @@ pub enum ServerStateError {
     ErrNicknameinuse { client: String, nickname: String },
     #[error("451 {client} :You have not registered")]
     ErrNotRegistered { client: String },
+    #[error("421 {client} {command} :Unknown command")]
+    ErrUnknownCommand { client: String, command: String },
     #[error("unknown error")]
     Unknown,
 }
@@ -321,6 +323,15 @@ impl ServerState {
         let user = &self.users[&user_id];
         let message = server_to_client::Message::Pong(server_to_client::PongMessage {
             token: token.to_vec(),
+        });
+        user.send(&message);
+    }
+
+    pub(crate) fn user_sends_unknown_command(&mut self, user_id: UserID, command: &str) {
+        let user = &self.users[&user_id];
+        let message = server_to_client::Message::ErrState(ServerStateError::ErrUnknownCommand {
+            client: user.nickname.clone(),
+            command: command.to_owned(),
         });
         user.send(&message);
     }

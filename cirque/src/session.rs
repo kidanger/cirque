@@ -1,7 +1,7 @@
 use cirque_parser::stream::{LendingIterator, StreamParser};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-use crate::server_state::SharedServerState;
+use crate::server_state::{ServerStateError, SharedServerState};
 use crate::transport::AnyStream;
 use crate::types::{User, UserID};
 use crate::{client_to_server, server_to_client};
@@ -62,7 +62,15 @@ impl ConnectingSession {
                     client_to_server::Message::Quit => {
                         todo!();
                     }
-                    client_to_server::Message::Unknown => {}
+                    client_to_server::Message::Unknown(command) => {
+                        let message = server_to_client::Message::ErrState(
+                            ServerStateError::ErrUnknownCommand {
+                                client: "*".to_string(),
+                                command: command.to_owned(),
+                            },
+                        );
+                        message.write_to(&mut self.stream).await?;
+                    }
                     _ => {
                         // valid commands should return ErrNotRegistered when not registered
                         let msg = server_to_client::Message::Err(
@@ -175,7 +183,6 @@ impl Session {
             dbg!(&message);
 
             match message {
-                client_to_server::Message::Unknown => {}
                 client_to_server::Message::Join(channels) => {
                     for channel in channels {
                         server_state
@@ -227,6 +234,12 @@ impl Session {
                     if result.is_err() {
                         locked_server_state.send_error(self.user_id, result.err().unwrap());
                     }
+                }
+                client_to_server::Message::Unknown(command) => {
+                    server_state
+                        .lock()
+                        .unwrap()
+                        .user_sends_unknown_command(self.user_id, &command);
                 }
                 _ => {
                     println!("illegal command from connected client");
