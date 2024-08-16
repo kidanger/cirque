@@ -104,10 +104,10 @@ impl ServerState {
         // notify everyone, including the joiner
         let mut nicknames = vec![];
         let joiner_spec = self.users[&user_id].fullspec();
-        let message = server_to_client::Message::Join(server_to_client::JoinMessage {
+        let message = server_to_client::Message::Join {
             channel: channel_name.to_owned(),
             user_fullspec: joiner_spec,
-        });
+        };
         for user_id in &channel.users {
             let user: &User = &self.users[user_id];
             nicknames.push(user.nickname.clone());
@@ -116,7 +116,7 @@ impl ServerState {
 
         // send topic and names to the joiner
         let user = &self.users[&user_id];
-        let message = server_to_client::Message::Topic(server_to_client::TopicMessage {
+        let message = server_to_client::Message::Topic {
             nickname: user.nickname.to_owned(),
             channel: channel_name.to_owned(),
             topic: if channel.topic.is_valid() {
@@ -124,12 +124,12 @@ impl ServerState {
             } else {
                 None
             },
-        });
+        };
         user.send(&message);
-        let message = server_to_client::Message::Names(server_to_client::NamesMessage {
+        let message = server_to_client::Message::Names {
             nickname: user.nickname.clone(),
             names: vec![(channel_name.to_owned(), nicknames)],
-        });
+        };
         user.send(&message);
     }
 
@@ -148,11 +148,11 @@ impl ServerState {
         }
 
         let user = &self.users[&user_id];
-        let message = server_to_client::Message::Part(server_to_client::PartMessage {
+        let message = server_to_client::Message::Part {
             user_fullspec: user.fullspec(),
             channel: channel_name.to_string(),
             reason: reason.clone(),
-        });
+        };
         for user_id in &channel.users {
             let user = &self.users[user_id];
             user.send(&message);
@@ -193,11 +193,11 @@ impl ServerState {
             return;
         };
 
-        let message = server_to_client::Message::PrivMsg(server_to_client::PrivMsgMessage {
+        let message = server_to_client::Message::PrivMsg {
             from_user: user.fullspec(),
             target: target.to_string(),
             content: content.to_vec(),
-        });
+        };
 
         match obj {
             LookupResult::Channel(channel) => {
@@ -237,11 +237,11 @@ impl ServerState {
             return;
         };
 
-        let message = server_to_client::Message::Notice(server_to_client::NoticeMessage {
+        let message = server_to_client::Message::Notice {
             from_user: user.fullspec(),
             target: target.to_string(),
             content: content.to_vec(),
-        });
+        };
 
         match obj {
             LookupResult::Channel(channel) => {
@@ -265,12 +265,11 @@ impl ServerState {
 
     pub(crate) fn user_asks_channel_mode(&mut self, user_id: UserID, channel: &str) {
         let user = &self.users[&user_id];
-        let message =
-            server_to_client::Message::ChannelMode(server_to_client::ChannelModeMessage {
-                nickname: user.nickname.clone(),
-                channel: channel.to_owned(),
-                mode: "+n".to_string(),
-            });
+        let message = server_to_client::Message::ChannelMode {
+            nickname: user.nickname.clone(),
+            channel: channel.to_owned(),
+            mode: "+n".to_string(),
+        };
         user.send(&message);
     }
 
@@ -286,8 +285,7 @@ impl ServerState {
             return Err(ServerStateError::NotOnChannel {
                 client: user.nickname.clone(),
                 channel: target.into(),
-            }
-            .into());
+            });
         }
 
         if let Some(channel) = self.channels.get_mut(target) {
@@ -307,22 +305,20 @@ impl ServerState {
                     .iter()
                     .flat_map(|u| self.users.get(u))
                     .for_each(|u| {
-                        u.send(&server_to_client::Message::Topic(
-                            server_to_client::TopicMessage {
-                                nickname: user.nickname.clone(),
-                                channel: target.into(),
-                                topic: Some(channel.topic.clone()),
-                            },
-                        ))
+                        u.send(&server_to_client::Message::Topic {
+                            nickname: user.nickname.clone(),
+                            channel: target.into(),
+                            topic: Some(channel.topic.clone()),
+                        })
                     });
                 Ok(())
             } else {
                 //view a current topic
-                let message = server_to_client::Message::Topic(server_to_client::TopicMessage {
+                let message = server_to_client::Message::Topic {
                     nickname: user.nickname.clone(),
                     channel: target.into(),
                     topic: Some(channel.topic.clone()),
-                });
+                };
                 user.send(&message);
                 Ok(())
             }
@@ -331,8 +327,7 @@ impl ServerState {
             Err(ServerStateError::NoSuchChannel {
                 client: user.nickname.clone(),
                 channel: target.into(),
-            }
-            .into())
+            })
         }
     }
 
@@ -342,9 +337,9 @@ impl ServerState {
 
     pub(crate) fn user_pings(&mut self, user_id: UserID, token: &[u8]) {
         let user = &self.users[&user_id];
-        let message = server_to_client::Message::Pong(server_to_client::PongMessage {
+        let message = server_to_client::Message::Pong {
             token: token.to_vec(),
-        });
+        };
         user.send(&message);
     }
 

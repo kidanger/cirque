@@ -7,68 +7,43 @@ use crate::{
 };
 
 #[derive(Debug, Clone)]
-pub struct JoinMessage {
-    pub channel: ChannelID,
-    pub user_fullspec: String,
-}
-
-#[derive(Debug, Clone)]
-pub struct NamesMessage {
-    pub nickname: String,
-    pub names: Vec<(ChannelID, Vec<String>)>,
-}
-
-#[derive(Debug, Clone)]
-pub struct TopicMessage {
-    pub nickname: String,
-    pub channel: String,
-
-    pub topic: Option<Topic>,
-}
-
-#[derive(Debug, Clone)]
-pub struct PongMessage {
-    pub token: Vec<u8>,
-}
-
-#[derive(Debug, Clone)]
-pub struct ChannelModeMessage {
-    pub nickname: String,
-    pub channel: ChannelID,
-    pub mode: String,
-}
-
-#[derive(Debug, Clone)]
-pub struct PrivMsgMessage {
-    pub from_user: String,
-    pub target: ChannelID,
-    pub content: Vec<u8>,
-}
-
-#[derive(Debug, Clone)]
-pub struct NoticeMessage {
-    pub from_user: String,
-    pub target: ChannelID,
-    pub content: Vec<u8>,
-}
-
-#[derive(Debug, Clone)]
-pub struct PartMessage {
-    pub user_fullspec: String,
-    pub channel: String,
-    pub reason: Option<Vec<u8>>,
-}
-
-#[derive(Debug, Clone)]
 pub enum Message {
-    Join(JoinMessage),
-    Names(NamesMessage),
-    Topic(TopicMessage),
-    Pong(PongMessage),
-    ChannelMode(ChannelModeMessage),
-    PrivMsg(PrivMsgMessage),
-    Notice(NoticeMessage),
-    Part(PartMessage),
+    Join {
+        channel: ChannelID,
+        user_fullspec: String,
+    },
+    Names {
+        nickname: String,
+        names: Vec<(ChannelID, Vec<String>)>,
+    },
+    Topic {
+        nickname: String,
+        channel: String,
+        topic: Option<Topic>,
+    },
+    Pong {
+        token: Vec<u8>,
+    },
+    ChannelMode {
+        nickname: String,
+        channel: ChannelID,
+        mode: String,
+    },
+    PrivMsg {
+        from_user: String,
+        target: ChannelID,
+        content: Vec<u8>,
+    },
+    Notice {
+        from_user: String,
+        target: ChannelID,
+        content: Vec<u8>,
+    },
+    Part {
+        user_fullspec: String,
+        channel: String,
+        reason: Option<Vec<u8>>,
+    },
     Err(ServerStateError),
 }
 
@@ -78,17 +53,20 @@ impl Message {
         stream: &mut impl transport::Stream,
     ) -> std::io::Result<()> {
         match self {
-            Message::Join(j) => {
+            Message::Join {
+                channel,
+                user_fullspec,
+            } => {
                 stream.write_all(b":").await?;
-                stream.write_all(j.user_fullspec.as_bytes()).await?;
+                stream.write_all(user_fullspec.as_bytes()).await?;
                 stream.write_all(b" JOIN ").await?;
-                stream.write_all(j.channel.as_bytes()).await?;
+                stream.write_all(channel.as_bytes()).await?;
                 stream.write_all(b"\r\n").await?;
             }
-            Message::Names(n) => {
-                for (channel, nicknames) in &n.names {
+            Message::Names { names, nickname } => {
+                for (channel, nicknames) in names {
                     stream.write_all(b":srv 353 ").await?;
-                    stream.write_all(n.nickname.as_bytes()).await?;
+                    stream.write_all(nickname.as_bytes()).await?;
                     stream.write_all(b" = ").await?;
                     stream.write_all(channel.as_bytes()).await?;
                     stream.write_all(b" :").await?;
@@ -98,17 +76,17 @@ impl Message {
                     }
                     stream.write_all(b"\r\n").await?;
                     stream.write_all(b":srv 366 ").await?;
-                    stream.write_all(n.nickname.as_bytes()).await?;
+                    stream.write_all(nickname.as_bytes()).await?;
                     stream.write_all(b" ").await?;
                     stream.write_all(channel.as_bytes()).await?;
                     stream.write_all(b" :End of NAMES list\r\n").await?;
                 }
             }
-            Message::Topic(TopicMessage {
+            Message::Topic {
                 nickname,
                 channel,
                 topic,
-            }) => {
+            } => {
                 if let Some(topic) = topic {
                     stream.write_all(b":srv 332 ").await?;
                     stream.write_all(nickname.as_bytes()).await?;
@@ -136,16 +114,16 @@ impl Message {
                     stream.write_all(b"\r\n").await?;
                 }
             }
-            Message::Pong(PongMessage { token }) => {
+            Message::Pong { token } => {
                 stream.write_all(b"PONG :").await?;
                 stream.write_all(token).await?;
                 stream.write_all(b"\r\n").await?;
             }
-            Message::ChannelMode(ChannelModeMessage {
+            Message::ChannelMode {
                 nickname,
                 channel,
                 mode,
-            }) => {
+            } => {
                 stream.write_all(b":srv 324 ").await?;
                 stream.write_all(nickname.as_bytes()).await?;
                 stream.write_all(b" ").await?;
@@ -154,11 +132,11 @@ impl Message {
                 stream.write_all(mode.as_bytes()).await?;
                 stream.write_all(b"\r\n").await?;
             }
-            Message::PrivMsg(PrivMsgMessage {
+            Message::PrivMsg {
                 from_user,
                 target,
                 content,
-            }) => {
+            } => {
                 stream.write_all(b":").await?;
                 stream.write_all(from_user.as_bytes()).await?;
                 stream.write_all(b" PRIVMSG ").await?;
@@ -167,11 +145,11 @@ impl Message {
                 stream.write_all(content).await?;
                 stream.write_all(b"\r\n").await?;
             }
-            Message::Notice(NoticeMessage {
+            Message::Notice {
                 from_user,
                 target,
                 content,
-            }) => {
+            } => {
                 stream.write_all(b":").await?;
                 stream.write_all(from_user.as_bytes()).await?;
                 stream.write_all(b" NOTICE ").await?;
@@ -180,11 +158,11 @@ impl Message {
                 stream.write_all(content).await?;
                 stream.write_all(b"\r\n").await?;
             }
-            Message::Part(PartMessage {
+            Message::Part {
                 user_fullspec,
                 channel,
                 reason,
-            }) => {
+            } => {
                 stream.write_all(b":").await?;
                 stream.write_all(user_fullspec.as_bytes()).await?;
                 stream.write_all(b" PART ").await?;
