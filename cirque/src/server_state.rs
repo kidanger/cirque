@@ -1,15 +1,19 @@
+use std::sync::{Arc, Mutex};
+
 use crate::server_to_client;
-use crate::Channel;
-use crate::ChannelID;
-use crate::ConnectingUser;
-use crate::User;
-use crate::UserID;
+use crate::types::Channel;
+use crate::types::ChannelID;
+use crate::types::ConnectingUser;
+use crate::types::User;
+use crate::types::UserID;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use std::collections::HashMap;
 
 use anyhow::Ok;
 use thiserror::Error;
+
+pub type SharedServerState = Arc<Mutex<ServerState>>;
 
 #[derive(Error, Debug, Clone)]
 pub enum ServerStateError {
@@ -26,7 +30,7 @@ enum LookupResult<'r> {
     User(&'r User),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct ServerState {
     users: HashMap<UserID, User>,
     connecting_users: Vec<ConnectingUser>,
@@ -35,19 +39,15 @@ pub struct ServerState {
 
 impl ServerState {
     pub fn new() -> Self {
-        Self {
-            users: Default::default(),
-            connecting_users: vec![],
-            channels: Default::default(),
-        }
+        Default::default()
     }
 
-    pub fn send_error(&mut self, user_id: UserID, error: anyhow::Error) {
+    pub(crate) fn send_error(&mut self, user_id: UserID, error: anyhow::Error) {
         let user = &self.users[&user_id];
         user.send(&server_to_client::Message::Err(error.to_string()));
     }
 
-    pub fn user_joins_channel(&mut self, user_id: UserID, channel_name: &str) {
+    pub(crate) fn user_joins_channel(&mut self, user_id: UserID, channel_name: &str) {
         let channel = self.channels.entry(channel_name.to_owned()).or_default();
 
         if channel.users.contains(&user_id) {
@@ -88,7 +88,7 @@ impl ServerState {
         user.send(&message);
     }
 
-    pub fn user_leaves_channel(
+    pub(crate) fn user_leaves_channel(
         &mut self,
         user_id: UserID,
         channel_name: &str,
@@ -116,7 +116,7 @@ impl ServerState {
         channel.users.remove(&user_id);
     }
 
-    pub fn user_disconnects(&mut self, _user_id: UserID) {}
+    pub(crate) fn user_disconnects(&mut self, _user_id: UserID) {}
 
     fn lookup_target<'r>(&'r self, target: &str) -> Option<LookupResult<'r>> {
         if let Some(channel) = self.channels.get(target) {
@@ -128,7 +128,7 @@ impl ServerState {
         }
     }
 
-    pub fn user_messages_target(&mut self, user_id: UserID, target: &str, content: &[u8]) {
+    pub(crate) fn user_messages_target(&mut self, user_id: UserID, target: &str, content: &[u8]) {
         let user = &self.users[&user_id];
 
         if content.is_empty() {
@@ -171,7 +171,7 @@ impl ServerState {
         }
     }
 
-    pub fn user_asks_channel_mode(&mut self, user_id: UserID, channel: &str) {
+    pub(crate) fn user_asks_channel_mode(&mut self, user_id: UserID, channel: &str) {
         let user = &self.users[&user_id];
         let message =
             server_to_client::Message::ChannelMode(server_to_client::ChannelModeMessage {
@@ -182,7 +182,7 @@ impl ServerState {
         user.send(&message);
     }
 
-    pub fn user_topic(
+    pub(crate) fn user_topic(
         &mut self,
         user_id: UserID,
         target: &str,
@@ -244,11 +244,11 @@ impl ServerState {
         }
     }
 
-    pub fn add_user(&mut self, user: User) {
+    pub(crate) fn add_user(&mut self, user: User) {
         self.users.insert(user.id, user);
     }
 
-    pub fn user_pings(&mut self, user_id: UserID, token: &[u8]) {
+    pub(crate) fn user_pings(&mut self, user_id: UserID, token: &[u8]) {
         let user = &self.users[&user_id];
         let message = server_to_client::Message::Pong(server_to_client::PongMessage {
             token: token.to_vec(),

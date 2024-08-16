@@ -1,9 +1,9 @@
 use tokio::io::AsyncWriteExt;
 
-use crate::server_state::ServerStateError;
-use crate::transport;
-use crate::ChannelID;
-use crate::Topic;
+use crate::{
+    transport,
+    types::{ChannelID, Topic},
+};
 
 #[derive(Debug, Clone)]
 pub struct JoinMessage {

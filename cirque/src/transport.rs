@@ -90,10 +90,10 @@ impl AsyncWrite for AnyStream {
 }
 
 pub trait Listener {
-    async fn accept(&self) -> anyhow::Result<AnyStream>;
+    fn accept(&self) -> impl std::future::Future<Output = anyhow::Result<AnyStream>> + Send;
 }
 
-pub(crate) struct TCPListener {
+pub struct TCPListener {
     listener: TcpListener,
 }
 
@@ -111,7 +111,7 @@ impl Listener for TCPListener {
     }
 }
 
-pub(crate) struct TLSListener {
+pub struct TLSListener {
     listener: TcpListener,
     acceptor: TlsAcceptor,
 }

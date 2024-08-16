@@ -1,4 +1,4 @@
-use crate::ChannelID;
+use crate::types::ChannelID;
 
 #[derive(Debug)]
 pub enum Message {
