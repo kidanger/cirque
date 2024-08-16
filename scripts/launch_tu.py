@@ -6,9 +6,7 @@ if __name__ == "__main__":
     subprocess.call(["cargo", "build", "--bin", "chirc-compat"])
     if os.path.exists("chirc") == False:
         subprocess.call(["git", "clone" ,"https://github.com/uchicago-cs/chirc"])
-        subprocess.call(["cd", "chirc"])
-        subprocess.call(["git", "reset", "--hard", "a392e1789c362e58c75b0bc533fc0aeac6f56304"])
-        subprocess.call(["cd", ".."])
+        subprocess.call(["git", "reset", "--hard", "a392e1789c362e58c75b0bc533fc0aeac6f56304"], cwd="chirc")
     
     file_name = "chirc-compat"
     if os.name == 'nt':
