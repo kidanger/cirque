@@ -74,12 +74,6 @@ impl ServerStateError {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct ServerStateErrorWithClient {
-    client: String,
-    inner: ServerStateError,
-}
-
 enum LookupResult<'r> {
     Channel(&'r Channel),
     User(&'r User),
