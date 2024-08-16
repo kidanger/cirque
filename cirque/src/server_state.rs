@@ -1,16 +1,17 @@
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use thiserror::Error;
+use tokio::io::AsyncWriteExt;
 
 use crate::server_to_client;
+use crate::transport;
 use crate::types::Channel;
 use crate::types::ChannelID;
 use crate::types::ConnectingUser;
 use crate::types::User;
 use crate::types::UserID;
-use std::time::{SystemTime, UNIX_EPOCH};
-
-use std::collections::HashMap;
-
-use thiserror::Error;
 
 pub type SharedServerState = Arc<Mutex<ServerState>>;
 
@@ -32,6 +33,18 @@ pub enum ServerStateError {
     NotOnChannel { client: String, channel: String },
     #[error("451 {client} :You have not registered")]
     NotRegistered { client: String },
+}
+
+impl ServerStateError {
+    pub(crate) async fn write_to(
+        &self,
+        stream: &mut impl transport::Stream,
+    ) -> std::io::Result<()> {
+        // NOTE: later we can optimize to avoid the to_string call
+        // currently it prevents us from using Vec<u8> in ServerStateError
+        stream.write_all(self.to_string().as_bytes()).await?;
+        Ok(())
+    }
 }
 
 enum LookupResult<'r> {

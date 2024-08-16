@@ -69,12 +69,14 @@ pub enum Message {
     PrivMsg(PrivMsgMessage),
     Notice(NoticeMessage),
     Part(PartMessage),
-
     Err(ServerStateError),
 }
 
 impl Message {
-    pub(crate) async fn write_to(&self, stream: &mut impl transport::Stream) -> anyhow::Result<()> {
+    pub(crate) async fn write_to(
+        &self,
+        stream: &mut impl transport::Stream,
+    ) -> std::io::Result<()> {
         match self {
             Message::Join(j) => {
                 stream.write_all(b":").await?;
@@ -194,9 +196,8 @@ impl Message {
                 stream.write_all(b"\r\n").await?;
             }
             Message::Err(err) => {
-                // TODO: later, we can move the writes to a ServerStateError::write_to(stream)
                 stream.write_all(b":srv ").await?;
-                stream.write_all(err.to_string().as_bytes()).await?;
+                err.write_to(stream).await?;
                 stream.write_all(b"\r\n").await?;
             }
         }
