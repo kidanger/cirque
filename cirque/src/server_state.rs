@@ -17,10 +17,12 @@ pub type SharedServerState = Arc<Mutex<ServerState>>;
 
 #[derive(Error, Debug, Clone)]
 pub enum ServerStateError {
-    #[error("442 {client:?} {channel:?} :You're not on that channel")]
+    #[error("442 {client} {channel} :You're not on that channel")]
     ErrNotonchannel { client: String, channel: String },
-    #[error("403 {client:?} {channel:?} ::No such channel")]
+    #[error("403 {client} {channel} :No such channel")]
     ErrNosuchchannel { client: String, channel: String },
+    #[error("433 {client} {nickname} :Nickname is already in use")]
+    ErrNicknameinuse { client: String, nickname: String },
     #[error("unknown error")]
     Unknown,
 }
@@ -42,7 +44,30 @@ impl ServerState {
         Default::default()
     }
 
-    pub(crate) fn send_error(&mut self, user_id: UserID, error: anyhow::Error) {
+    pub(crate) fn check_nickname(
+        &self,
+        nickname: &str,
+        user_id: Option<UserID>,
+    ) -> Result<(), anyhow::Error> {
+        let look = self.lookup_target(nickname);
+        if look.is_none() {
+            Ok(())
+        } else {
+            let mut nick = "*";
+            if let Some(user_id) = user_id {
+                let user: &User = &self.users[&user_id];
+                nick = &user.nickname;
+            }
+
+            Err(ServerStateError::ErrNicknameinuse {
+                client: nick.to_string(),
+                nickname: nickname.into(),
+            }
+            .into())
+        }
+    }
+
+    pub(crate) fn send_error(&self, user_id: UserID, error: anyhow::Error) {
         let user = &self.users[&user_id];
         user.send(&server_to_client::Message::Err(error.to_string()));
     }
@@ -64,7 +89,7 @@ impl ServerState {
             user_fullspec: joiner_spec,
         });
         for user_id in &channel.users {
-            let user = &self.users[user_id];
+            let user: &User = &self.users[user_id];
             nicknames.push(user.nickname.clone());
             user.send(&message);
         }

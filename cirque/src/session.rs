@@ -17,7 +17,10 @@ impl ConnectingSession {
 }
 
 impl ConnectingSession {
-    pub(crate) async fn connect_user(mut self) -> Result<(Session, User), anyhow::Error> {
+    pub(crate) async fn connect_user(
+        mut self,
+        server_state: &SharedServerState,
+    ) -> Result<(Session, User), anyhow::Error> {
         let mut chosen_nick = None;
         let mut chosen_user = None;
         let mut ping_token = None;
@@ -40,7 +43,19 @@ impl ConnectingSession {
                     client_to_server::Message::Cap => {
                         // ignore for now
                     }
-                    client_to_server::Message::Nick(nick) => chosen_nick = Some(nick),
+                    client_to_server::Message::Nick(nick) => {
+                        let is_nickname_valid =
+                            server_state.lock().unwrap().check_nickname(&nick, None);
+                        if is_nickname_valid.is_ok() {
+                            chosen_nick = Some(nick)
+                        } else {
+                            self.stream.write_all(b":srv ").await?;
+                            self.stream
+                                .write_all(is_nickname_valid.err().unwrap().to_string().as_bytes())
+                                .await?;
+                            self.stream.write_all(b"\r\n").await?;
+                        }
+                    }
                     client_to_server::Message::User(user) => chosen_user = Some(user),
                     client_to_server::Message::Pong(token) => {
                         if Some(token) == ping_token {
@@ -152,16 +167,10 @@ impl Session {
                     );
                 }
                 client_to_server::Message::Topic(target, content) => {
-                    let _result =
-                        server_state
-                            .lock()
-                            .unwrap()
-                            .user_topic(self.user_id, &target, &content);
-                    if _result.is_err() {
-                        server_state
-                            .lock()
-                            .unwrap()
-                            .send_error(self.user_id, _result.err().unwrap())
+                    let mut locked_server_state = server_state.lock().unwrap();
+                    let result = locked_server_state.user_topic(self.user_id, &target, &content);
+                    if result.is_err() {
+                        locked_server_state.send_error(self.user_id, result.err().unwrap());
                     }
                 }
                 _ => {

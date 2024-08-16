@@ -13,7 +13,7 @@ pub async fn run_server(
         let server_state = server_state.clone();
         let fut = async move {
             let session = ConnectingSession::new(stream);
-            let (session, user) = session.connect_user().await?;
+            let (session, user) = session.connect_user(&server_state).await?;
             server_state.lock().unwrap().add_user(user);
             session.run(server_state).await?;
             anyhow::Ok(())
