@@ -35,3 +35,4 @@ jobs:
         $run CHANNEL_JOIN
         $run CHANNEL_PRIVMSG_NOTICE
         $run CHANNEL_PART
+        $run PING_PONG

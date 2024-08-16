@@ -22,7 +22,7 @@ pub enum Message {
         topic: Option<Topic>,
     },
     Pong {
-        token: Vec<u8>,
+        token: Option<Vec<u8>>,
     },
     ChannelMode {
         nickname: String,
@@ -115,8 +115,11 @@ impl Message {
                 }
             }
             Message::Pong { token } => {
-                stream.write_all(b"PONG :").await?;
-                stream.write_all(token).await?;
+                stream.write_all(b"PONG :srv").await?;
+                if let Some(token) = token {
+                    stream.write_all(b" :").await?;
+                    stream.write_all(token).await?;
+                }
                 stream.write_all(b"\r\n").await?;
             }
             Message::ChannelMode {

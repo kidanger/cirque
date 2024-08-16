@@ -369,10 +369,10 @@ impl ServerState {
         self.users.insert(user.id, user);
     }
 
-    pub(crate) fn user_pings(&mut self, user_id: UserID, token: &[u8]) {
+    pub(crate) fn user_pings(&mut self, user_id: UserID, token: Option<&[u8]>) {
         let user = &self.users[&user_id];
         let message = server_to_client::Message::Pong {
-            token: token.to_vec(),
+            token: token.map(|t| t.to_vec()),
         };
         user.send(&message);
     }

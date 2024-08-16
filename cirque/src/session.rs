@@ -229,7 +229,7 @@ impl Session {
                     server_state.user_asks_channel_mode(self.user_id, &channel);
                 }
                 client_to_server::Message::Ping(token) => {
-                    server_state.user_pings(self.user_id, &token);
+                    server_state.user_pings(self.user_id, token.as_deref());
                 }
                 client_to_server::Message::Pong(_) => {}
                 client_to_server::Message::Quit => return Ok(true),
