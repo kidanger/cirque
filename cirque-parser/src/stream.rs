@@ -4,6 +4,17 @@ use slice_ring_buffer::SliceRingBuffer;
 
 use crate::{parse_message, Message};
 
+#[derive(Clone, Debug)]
+pub struct ParsingError(String);
+
+impl std::fmt::Display for ParsingError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for ParsingError {}
+
 #[derive(Debug)]
 pub struct StreamParser {
     buffer: SliceRingBuffer<u8>,
@@ -113,14 +124,14 @@ impl LendingIterator for MessageIterator<'_> {
     type Item<'next>
     where
         Self: 'next,
-    = Result<Message<'next>, anyhow::Error>;
+    = Result<Message<'next>, ParsingError>;
 
-    fn next(&mut self) -> Option<Result<Message, anyhow::Error>> {
+    fn next(&mut self) -> Option<Result<Message, ParsingError>> {
         let line = consume_line(&mut self.stream_parser.buffer)?;
         let result = parse_message(line);
         let result = result
             .map(|(_, msg)| msg)
-            .map_err(|err| anyhow::anyhow!(err.to_string()));
+            .map_err(|err| ParsingError(err.to_string()));
         Some(result)
     }
 }
