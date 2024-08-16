@@ -68,7 +68,7 @@ impl ServerState {
         &self,
         nickname: &str,
         user_id: Option<UserID>,
-    ) -> Result<(), anyhow::Error> {
+    ) -> Result<(), ServerStateError> {
         let look = self.lookup_target(nickname);
         if look.is_none() {
             return Ok(());
@@ -83,8 +83,7 @@ impl ServerState {
         Err(ServerStateError::NicknameInUse {
             client: nick.to_string(),
             nickname: nickname.into(),
-        }
-        .into())
+        })
     }
 
     pub(crate) fn send_error(&self, user_id: UserID, error: ServerStateError) {
