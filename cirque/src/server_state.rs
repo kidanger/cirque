@@ -71,20 +71,20 @@ impl ServerState {
     ) -> Result<(), anyhow::Error> {
         let look = self.lookup_target(nickname);
         if look.is_none() {
-            Ok(())
-        } else {
-            let mut nick = "*";
-            if let Some(user_id) = user_id {
-                let user: &User = &self.users[&user_id];
-                nick = &user.nickname;
-            }
-
-            Err(ServerStateError::NicknameInUse {
-                client: nick.to_string(),
-                nickname: nickname.into(),
-            }
-            .into())
+            return Ok(());
         }
+
+        let mut nick = "*";
+        if let Some(user_id) = user_id {
+            let user: &User = &self.users[&user_id];
+            nick = &user.nickname;
+        }
+
+        Err(ServerStateError::NicknameInUse {
+            client: nick.to_string(),
+            nickname: nickname.into(),
+        }
+        .into())
     }
 
     pub(crate) fn send_error(&self, user_id: UserID, error: ServerStateError) {
@@ -279,9 +279,9 @@ impl ServerState {
         target: &str,
         content: &Option<Vec<u8>>,
     ) -> Result<(), ServerStateError> {
-        if self.users.values().any(|u| u.nickname == target) {
-            let user = &self.users[&user_id];
+        let user = &self.users[&user_id];
 
+        if self.users.values().any(|u| u.nickname == target) {
             return Err(ServerStateError::NotOnChannel {
                 client: user.nickname.clone(),
                 channel: target.into(),
@@ -289,8 +289,6 @@ impl ServerState {
         }
 
         if let Some(channel) = self.channels.get_mut(target) {
-            let user = &self.users[&user_id];
-
             //Set a new topic
             if let Some(content) = content {
                 channel.topic.content.clone_from(content);
@@ -300,17 +298,16 @@ impl ServerState {
                     .as_secs();
                 channel.topic.from_nickname.clone_from(&user.nickname);
 
+                let message = &server_to_client::Message::Topic {
+                    nickname: user.nickname.clone(),
+                    channel: target.into(),
+                    topic: Some(channel.topic.clone()),
+                };
                 channel
                     .users
                     .iter()
                     .flat_map(|u| self.users.get(u))
-                    .for_each(|u| {
-                        u.send(&server_to_client::Message::Topic {
-                            nickname: user.nickname.clone(),
-                            channel: target.into(),
-                            topic: Some(channel.topic.clone()),
-                        })
-                    });
+                    .for_each(|u| u.send(&message));
                 Ok(())
             } else {
                 //view a current topic
@@ -323,7 +320,6 @@ impl ServerState {
                 Ok(())
             }
         } else {
-            let user = &self.users[&user_id];
             Err(ServerStateError::NoSuchChannel {
                 client: user.nickname.clone(),
                 channel: target.into(),

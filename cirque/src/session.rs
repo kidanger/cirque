@@ -4,7 +4,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use crate::server_state::{ServerStateError, SharedServerState};
 use crate::transport::AnyStream;
 use crate::types::{User, UserID};
-use crate::{client_to_server, server_to_client};
+use crate::{client_to_server, server_to_client, ServerState};
 
 pub(crate) struct ConnectingSession {
     stream: AnyStream,
@@ -170,7 +170,7 @@ pub(crate) struct Session {
 }
 
 impl Session {
-    fn process_buffer(&mut self, server_state: &SharedServerState) -> anyhow::Result<bool> {
+    fn process_buffer(&mut self, server_state: &mut ServerState) -> anyhow::Result<bool> {
         let mut iter = self.stream_parser.consume_iter();
         while let Some(message) = iter.next() {
             let message = match message {
@@ -183,61 +183,35 @@ impl Session {
             match message {
                 client_to_server::Message::Join(channels) => {
                     for channel in channels {
-                        server_state
-                            .lock()
-                            .unwrap()
-                            .user_joins_channel(self.user_id, &channel);
+                        server_state.user_joins_channel(self.user_id, &channel);
                     }
                 }
                 client_to_server::Message::Part(channels, reason) => {
                     for channel in channels {
-                        server_state.lock().unwrap().user_leaves_channel(
-                            self.user_id,
-                            &channel,
-                            &reason,
-                        );
+                        server_state.user_leaves_channel(self.user_id, &channel, &reason);
                     }
                 }
                 client_to_server::Message::AskModeChannel(channel) => {
-                    server_state
-                        .lock()
-                        .unwrap()
-                        .user_asks_channel_mode(self.user_id, &channel);
+                    server_state.user_asks_channel_mode(self.user_id, &channel);
                 }
                 client_to_server::Message::Ping(token) => {
-                    server_state
-                        .lock()
-                        .unwrap()
-                        .user_pings(self.user_id, &token);
+                    server_state.user_pings(self.user_id, &token);
                 }
                 client_to_server::Message::Pong(_) => {}
                 client_to_server::Message::Quit => return Ok(true),
                 client_to_server::Message::PrivMsg(target, content) => {
-                    server_state.lock().unwrap().user_messages_target(
-                        self.user_id,
-                        &target,
-                        &content,
-                    );
+                    server_state.user_messages_target(self.user_id, &target, &content);
                 }
                 client_to_server::Message::Notice(target, content) => {
-                    server_state.lock().unwrap().user_notices_target(
-                        self.user_id,
-                        &target,
-                        &content,
-                    );
+                    server_state.user_notices_target(self.user_id, &target, &content);
                 }
                 client_to_server::Message::Topic(target, content) => {
-                    let mut locked_server_state = server_state.lock().unwrap();
-                    let result = locked_server_state.user_topic(self.user_id, &target, &content);
-                    if result.is_err() {
-                        locked_server_state.send_error(self.user_id, result.err().unwrap());
+                    if let Err(err) = server_state.user_topic(self.user_id, &target, &content);
+                        server_state.send_error(self.user_id, err);
                     }
                 }
                 client_to_server::Message::Unknown(command) => {
-                    server_state
-                        .lock()
-                        .unwrap()
-                        .user_sends_unknown_command(self.user_id, &command);
+                    server_state.user_sends_unknown_command(self.user_id, &command);
                 }
                 _ => {
                     println!("illegal command from connected client");
@@ -249,7 +223,7 @@ impl Session {
 
     pub(crate) async fn run(mut self, server_state: SharedServerState) -> anyhow::Result<()> {
         // first, process potential messages in the stream parser, leftovers from the ConnectingSession
-        let mut quit = self.process_buffer(&server_state)?;
+        let mut quit = self.process_buffer(&mut server_state.lock().unwrap())?;
 
         while !quit {
             tokio::select! {
@@ -257,7 +231,7 @@ impl Session {
                     let received = result?;
                     anyhow::ensure!(received > 0, "stream ended");
 
-                    quit = self.process_buffer(&server_state)?;
+                    quit = self.process_buffer(&mut server_state.lock().unwrap())?;
                     if quit {
                         break;
                     }
