@@ -116,16 +116,15 @@ impl ServerState {
 
         // send topic and names to the joiner
         let user = &self.users[&user_id];
-        let message = server_to_client::Message::Topic {
-            nickname: user.nickname.to_owned(),
-            channel: channel_name.to_owned(),
-            topic: if channel.topic.is_valid() {
-                Some(channel.topic.clone())
-            } else {
-                None
-            },
-        };
-        user.send(&message);
+        if channel.topic.is_valid() {
+            let message = server_to_client::Message::Topic {
+                nickname: user.nickname.to_owned(),
+                channel: channel_name.to_owned(),
+                topic: Some(channel.topic.clone()),
+            };
+            user.send(&message);
+        }
+
         let message = server_to_client::Message::Names {
             nickname: user.nickname.clone(),
             names: vec![(channel_name.to_owned(), nicknames)],
