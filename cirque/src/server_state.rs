@@ -169,16 +169,23 @@ impl ServerState {
         user_id: UserID,
         channel_name: &str,
         reason: &Option<Vec<u8>>,
-    ) {
+    ) -> Result<(), ServerStateError> {
+        let user = &self.users[&user_id];
+
         let Some(channel) = self.channels.get_mut(channel_name) else {
-            return;
+            return Err(ServerStateError::NoSuchChannel {
+                client: user.nickname.clone(),
+                channel: channel_name.to_string(),
+            });
         };
 
         if !channel.users.contains(&user_id) {
-            return;
+            return Err(ServerStateError::NotOnChannel {
+                client: user.nickname.clone(),
+                channel: channel_name.to_string(),
+            });
         }
 
-        let user = &self.users[&user_id];
         let message = server_to_client::Message::Part {
             user_fullspec: user.fullspec(),
             channel: channel_name.to_string(),
@@ -190,6 +197,12 @@ impl ServerState {
         }
 
         channel.users.remove(&user_id);
+
+        if channel.users.is_empty() {
+            self.channels.remove(channel_name);
+        }
+
+        Ok(())
     }
 
     pub(crate) fn user_disconnects(&mut self, _user_id: UserID) {}

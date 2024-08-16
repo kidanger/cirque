@@ -218,7 +218,11 @@ impl Session {
                 }
                 client_to_server::Message::Part(channels, reason) => {
                     for channel in channels {
-                        server_state.user_leaves_channel(self.user_id, &channel, &reason);
+                        if let Err(err) =
+                            server_state.user_leaves_channel(self.user_id, &channel, &reason)
+                        {
+                            server_state.send_error(self.user_id, err);
+                        }
                     }
                 }
                 client_to_server::Message::AskModeChannel(channel) => {
