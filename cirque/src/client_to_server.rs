@@ -70,7 +70,11 @@ impl TryFrom<&cirque_parser::Message<'_>> for Message {
                 Message::Notice(target, content)
             }
             b"PART" => {
-                let channels = params[0]
+                let channels = message
+                    .first_parameter()
+                    .ok_or(MessageDecodingError::NotEnoughParameters {
+                        command: str(message.command().to_vec())?,
+                    })?
                     .split(|&c| c == b',')
                     .flat_map(|s| String::from_utf8(s.to_owned()))
                     .collect::<Vec<_>>();
