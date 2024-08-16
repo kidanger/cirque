@@ -206,7 +206,7 @@ impl Session {
                     server_state.user_notices_target(self.user_id, &target, &content);
                 }
                 client_to_server::Message::Topic(target, content) => {
-                    if let Err(err) = server_state.user_topic(self.user_id, &target, &content);
+                    if let Err(err) = server_state.user_topic(self.user_id, &target, &content) {
                         server_state.send_error(self.user_id, err);
                     }
                 }
