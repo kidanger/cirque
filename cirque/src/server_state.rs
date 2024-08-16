@@ -345,7 +345,7 @@ impl ServerState {
                     .users
                     .iter()
                     .flat_map(|u| self.users.get(u))
-                    .for_each(|u| u.send(&message));
+                    .for_each(|u| u.send(message));
                 Ok(())
             } else {
                 //view a current topic

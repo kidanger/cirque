@@ -26,6 +26,7 @@ jobs:
 
     - name: test
       run: |
+<<<<<<< HEAD
         cargo build --bin chirc-compat
         git clone https://github.com/uchicago-cs/chirc; cd chirc; git reset --hard a392e1789c362e58c75b0bc533fc0aeac6f56304; cd ..
 
@@ -36,3 +37,6 @@ jobs:
         $run CHANNEL_PRIVMSG_NOTICE
         $run CHANNEL_PART
         $run PING_PONG
+=======
+        python scripts/launch_tu.py
+>>>>>>> 9306728 (add script)
