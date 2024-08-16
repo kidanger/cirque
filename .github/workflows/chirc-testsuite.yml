@@ -33,3 +33,4 @@ jobs:
         $run BASIC_CONNECTION
         $run ERR_UNKNOWN
         $run CHANNEL_JOIN
+        $run CHANNEL_PRIVMSG_NOTICE
