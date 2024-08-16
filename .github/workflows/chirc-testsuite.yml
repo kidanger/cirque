@@ -8,7 +8,7 @@ env:
   UV_SYSTEM_PYTHON: 1
 
 jobs:
-  build:
+  test:
     runs-on: ubuntu-latest
 
     steps:
@@ -29,3 +29,4 @@ jobs:
 
         cargo build --bin chirc-compat
         pytest chirc -vv --chirc-exe target/debug/chirc-compat --chirc-category BASIC_CONNECTION
+        pytest chirc -vv --chirc-exe target/debug/chirc-compat --chirc-category CHANNEL_JOIN
