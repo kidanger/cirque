@@ -1,6 +1,8 @@
 [workspace]
 resolver = "2"
 
-members = [ "cirque",
+members = [
+    "cirque",
     "cirque-parser",
+    "tests/testsuite-chirc/chirc-compat",
 ]

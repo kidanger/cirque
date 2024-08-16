@@ -1,0 +1,31 @@
+name: Chirc-testsuite
+
+on: [push, pull_request]
+
+
+env:
+  CARGO_TERM_COLOR: always
+  UV_SYSTEM_PYTHON: 1
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up uv
+      run: curl -LsSf https://astral.sh/uv/install.sh | sh
+    - name: "Set up Python"
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+    - name: Install pytest
+      run: uv pip install pytest pytest-html pytest-json
+
+    - name: test
+      run: |
+        git clone https://github.com/uchicago-cs/chirc; cd chirc; git reset --hard a392e1789c362e58c75b0bc533fc0aeac6f56304; cd ..
+
+        cargo build --bin chirc-compat
+        pytest chirc -vv --chirc-exe target/debug/chirc-compat --chirc-category BASIC_CONNECTION
