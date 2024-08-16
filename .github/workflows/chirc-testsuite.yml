@@ -6,6 +6,7 @@ on: [push, pull_request]
 env:
   CARGO_TERM_COLOR: always
   UV_SYSTEM_PYTHON: 1
+  FORCE_COLOR: 1
 
 jobs:
   test:
