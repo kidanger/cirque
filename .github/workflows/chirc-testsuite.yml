@@ -26,8 +26,9 @@ jobs:
 
     - name: test
       run: |
+        cargo build --bin chirc-compat
         git clone https://github.com/uchicago-cs/chirc; cd chirc; git reset --hard a392e1789c362e58c75b0bc533fc0aeac6f56304; cd ..
 
-        cargo build --bin chirc-compat
-        pytest chirc -vv --chirc-exe target/debug/chirc-compat --chirc-category BASIC_CONNECTION
-        pytest chirc -vv --chirc-exe target/debug/chirc-compat --chirc-category CHANNEL_JOIN
+        run="pytest chirc --disable-pytest-warnings -vv --chirc-exe target/debug/chirc-compat --chirc-category "
+        $run BASIC_CONNECTION
+        $run CHANNEL_JOIN
