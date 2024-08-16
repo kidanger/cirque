@@ -63,21 +63,19 @@ impl ConnectingSession {
                         todo!();
                     }
                     client_to_server::Message::Unknown(command) => {
-                        let message = server_to_client::Message::ErrState(
-                            ServerStateError::ErrUnknownCommand {
+                        let message =
+                            server_to_client::Message::Err(ServerStateError::UnknownCommand {
                                 client: "*".to_string(),
                                 command: command.to_owned(),
-                            },
-                        );
+                            });
                         message.write_to(&mut self.stream).await?;
                     }
                     _ => {
                         // valid commands should return ErrNotRegistered when not registered
                         let msg = server_to_client::Message::Err(
-                            crate::server_state::ServerStateError::ErrNotRegistered {
+                            crate::server_state::ServerStateError::NotRegistered {
                                 client: chosen_nick.unwrap_or("*".to_string()),
-                            }
-                            .to_string(),
+                            },
                         );
                         msg.write_to(&mut self.stream).await?;
                         anyhow::bail!("illegal command during connection");

@@ -70,11 +70,7 @@ pub enum Message {
     Notice(NoticeMessage),
     Part(PartMessage),
 
-    ErrCannotSendToChan(String),
-    ErrNoSuchNick(String, String),
-    ErrNoTextToSend(),
-    Err(String),
-    ErrState(ServerStateError),
+    Err(ServerStateError),
 }
 
 impl Message {
@@ -197,27 +193,7 @@ impl Message {
                 }
                 stream.write_all(b"\r\n").await?;
             }
-            Message::ErrCannotSendToChan(channel) => {
-                stream.write_all(b":srv 404 ").await?;
-                stream.write_all(channel.as_bytes()).await?;
-                stream.write_all(b" :Cannot send to channel\r\n").await?;
-            }
-            Message::ErrNoSuchNick(nickname, target) => {
-                stream.write_all(b":srv 401 ").await?;
-                stream.write_all(nickname.as_bytes()).await?;
-                stream.write_all(b" ").await?;
-                stream.write_all(target.as_bytes()).await?;
-                stream.write_all(b" :No such nick/channel\r\n").await?;
-            }
-            Message::ErrNoTextToSend() => {
-                stream.write_all(b":srv 412 :No text to send\r\n").await?;
-            }
-            Message::Err(error) => {
-                stream.write_all(b":srv ").await?;
-                stream.write_all(error.as_bytes()).await?;
-                stream.write_all(b"\r\n").await?;
-            }
-            Message::ErrState(err) => {
+            Message::Err(err) => {
                 // TODO: later, we can move the writes to a ServerStateError::write_to(stream)
                 stream.write_all(b":srv ").await?;
                 stream.write_all(err.to_string().as_bytes()).await?;

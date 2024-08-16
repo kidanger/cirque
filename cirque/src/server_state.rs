@@ -10,25 +10,28 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use std::collections::HashMap;
 
-use anyhow::Ok;
 use thiserror::Error;
 
 pub type SharedServerState = Arc<Mutex<ServerState>>;
 
 #[derive(Error, Debug, Clone)]
 pub enum ServerStateError {
-    #[error("442 {client} {channel} :You're not on that channel")]
-    ErrNotonchannel { client: String, channel: String },
+    #[error("401 {client} {target} :No such nick/channel")]
+    NoSuchNick { client: String, target: String },
     #[error("403 {client} {channel} :No such channel")]
-    ErrNosuchchannel { client: String, channel: String },
-    #[error("433 {client} {nickname} :Nickname is already in use")]
-    ErrNicknameinuse { client: String, nickname: String },
-    #[error("451 {client} :You have not registered")]
-    ErrNotRegistered { client: String },
+    NoSuchChannel { client: String, channel: String },
+    #[error("404 {client} {channel} :Cannot send to channel")]
+    CannotSendToChan { client: String, channel: String },
+    #[error("412 {client} :No text to send")]
+    NoTextToSend { client: String },
     #[error("421 {client} {command} :Unknown command")]
-    ErrUnknownCommand { client: String, command: String },
-    #[error("unknown error")]
-    Unknown,
+    UnknownCommand { client: String, command: String },
+    #[error("433 {client} {nickname} :Nickname is already in use")]
+    NicknameInUse { client: String, nickname: String },
+    #[error("442 {client} {channel} :You're not on that channel")]
+    NotOnChannel { client: String, channel: String },
+    #[error("451 {client} :You have not registered")]
+    NotRegistered { client: String },
 }
 
 enum LookupResult<'r> {
@@ -63,7 +66,7 @@ impl ServerState {
                 nick = &user.nickname;
             }
 
-            Err(ServerStateError::ErrNicknameinuse {
+            Err(ServerStateError::NicknameInUse {
                 client: nick.to_string(),
                 nickname: nickname.into(),
             }
@@ -71,9 +74,9 @@ impl ServerState {
         }
     }
 
-    pub(crate) fn send_error(&self, user_id: UserID, error: anyhow::Error) {
+    pub(crate) fn send_error(&self, user_id: UserID, error: ServerStateError) {
         let user = &self.users[&user_id];
-        user.send(&server_to_client::Message::Err(error.to_string()));
+        user.send(&server_to_client::Message::Err(error));
     }
 
     pub(crate) fn user_joins_channel(&mut self, user_id: UserID, channel_name: &str) {
@@ -161,16 +164,18 @@ impl ServerState {
         let user = &self.users[&user_id];
 
         if content.is_empty() {
-            let message = server_to_client::Message::ErrNoTextToSend();
+            let message = server_to_client::Message::Err(ServerStateError::NoTextToSend {
+                client: user.nickname.clone(),
+            });
             user.send(&message);
             return;
         }
 
         let Some(obj) = self.lookup_target(target) else {
-            let message = server_to_client::Message::ErrNoSuchNick(
-                user.nickname.to_string(),
-                target.to_string(),
-            );
+            let message = server_to_client::Message::Err(ServerStateError::NoSuchNick {
+                client: user.nickname.to_string(),
+                target: target.to_string(),
+            });
             user.send(&message);
             return;
         };
@@ -185,7 +190,10 @@ impl ServerState {
             LookupResult::Channel(channel) => {
                 if !channel.users.contains(&user_id) {
                     let message =
-                        server_to_client::Message::ErrCannotSendToChan(target.to_string());
+                        server_to_client::Message::Err(ServerStateError::CannotSendToChan {
+                            client: user.nickname.to_string(),
+                            channel: target.to_string(),
+                        });
                     user.send(&message);
                     return;
                 }
@@ -258,11 +266,11 @@ impl ServerState {
         user_id: UserID,
         target: &str,
         content: &Option<Vec<u8>>,
-    ) -> Result<(), anyhow::Error> {
+    ) -> Result<(), ServerStateError> {
         if self.users.values().any(|u| u.nickname == target) {
             let user = &self.users[&user_id];
 
-            return Err(ServerStateError::ErrNotonchannel {
+            return Err(ServerStateError::NotOnChannel {
                 client: user.nickname.clone(),
                 channel: target.into(),
             }
@@ -307,7 +315,7 @@ impl ServerState {
             }
         } else {
             let user = &self.users[&user_id];
-            Err(ServerStateError::ErrNosuchchannel {
+            Err(ServerStateError::NoSuchChannel {
                 client: user.nickname.clone(),
                 channel: target.into(),
             }
@@ -329,7 +337,7 @@ impl ServerState {
 
     pub(crate) fn user_sends_unknown_command(&mut self, user_id: UserID, command: &str) {
         let user = &self.users[&user_id];
-        let message = server_to_client::Message::ErrState(ServerStateError::ErrUnknownCommand {
+        let message = server_to_client::Message::Err(ServerStateError::UnknownCommand {
             client: user.nickname.clone(),
             command: command.to_owned(),
         });
