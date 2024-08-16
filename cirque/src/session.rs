@@ -1,5 +1,6 @@
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
+use crate::client_to_server::MessageDecodingError;
 use crate::server_state::{ServerStateError, SharedServerState};
 use crate::transport::AnyStream;
 use crate::types::{User, UserID};
@@ -38,7 +39,30 @@ impl ConnectingSession {
                     Ok(m) => m,
                     Err(e) => anyhow::bail!(e.to_string()),
                 };
-                let message = client_to_server::Message::try_from(message)?;
+                let message = match client_to_server::Message::try_from(&message) {
+                    Ok(message) => message,
+                    Err(MessageDecodingError::CannotDecodeUtf8 { command }) => {
+                        let msg = server_to_client::Message::Err(
+                            crate::server_state::ServerStateError::UnknownError {
+                                client: chosen_nick.clone().unwrap_or("*".to_string()),
+                                command,
+                                info: "Cannot decode utf8".to_string(),
+                            },
+                        );
+                        msg.write_to(&mut self.stream).await?;
+                        continue;
+                    }
+                    Err(MessageDecodingError::NotEnoughParameters { command }) => {
+                        let msg = server_to_client::Message::Err(
+                            crate::server_state::ServerStateError::NeedMoreParams {
+                                client: chosen_nick.clone().unwrap_or("*".to_string()),
+                                command,
+                            },
+                        );
+                        msg.write_to(&mut self.stream).await?;
+                        continue;
+                    }
+                };
                 dbg!(&message);
 
                 match message {
@@ -177,7 +201,13 @@ impl Session {
                 Ok(m) => m,
                 Err(e) => anyhow::bail!(e.to_string()),
             };
-            let message = client_to_server::Message::try_from(message)?;
+            let message = match client_to_server::Message::try_from(&message) {
+                Ok(message) => message,
+                Err(error) => {
+                    server_state.user_sends_invalid_message(self.user_id, error);
+                    continue;
+                }
+            };
             dbg!(&message);
 
             match message {

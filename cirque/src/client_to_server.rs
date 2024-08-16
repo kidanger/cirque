@@ -1,7 +1,7 @@
 use crate::types::ChannelID;
 
 #[derive(Debug)]
-pub enum Message {
+pub(crate) enum Message {
     Cap,
     Nick(String),
     User(String),
@@ -17,36 +17,55 @@ pub enum Message {
     Unknown(String),
 }
 
-impl TryFrom<cirque_parser::Message<'_>> for Message {
-    type Error = anyhow::Error;
+pub(crate) enum MessageDecodingError {
+    CannotDecodeUtf8 { command: Vec<u8> },
+    NotEnoughParameters { command: String },
+}
 
-    fn try_from(value: cirque_parser::Message) -> Result<Self, Self::Error> {
-        let params = value.parameters();
-        let message = match value.command() {
+impl TryFrom<&cirque_parser::Message<'_>> for Message {
+    type Error = MessageDecodingError;
+
+    fn try_from(message: &cirque_parser::Message) -> Result<Self, Self::Error> {
+        let str = |s: Vec<u8>| -> Result<String, MessageDecodingError> {
+            String::from_utf8(s).map_err(|_| MessageDecodingError::CannotDecodeUtf8 {
+                command: message.command().to_vec(),
+            })
+        };
+        let opt = |opt: Option<Vec<u8>>| -> Result<Vec<u8>, MessageDecodingError> {
+            opt.ok_or(MessageDecodingError::NotEnoughParameters {
+                command: str(message.command().to_vec())?,
+            })
+        };
+        let params = message.parameters();
+        let message = match message.command() {
             b"CAP" => Message::Cap,
-            b"NICK" => Message::Nick(String::from_utf8(params[0].to_vec())?),
-            b"USER" => Message::User(String::from_utf8(params[0].to_vec())?),
-            b"PONG" => Message::Pong(params[0].to_vec()),
+            b"NICK" => Message::Nick(str(opt(message.first_parameter_as_vec())?)?),
+            b"USER" => Message::User(str(opt(message.first_parameter_as_vec())?)?),
+            b"PONG" => Message::Pong(opt(message.first_parameter_as_vec())?),
             b"JOIN" => {
-                let channels = params[0]
+                let channels = message
+                    .first_parameter()
+                    .ok_or(MessageDecodingError::NotEnoughParameters {
+                        command: str(message.command().to_vec())?,
+                    })?
                     .split(|&c| c == b',')
                     .flat_map(|s| String::from_utf8(s.to_owned()))
                     .collect::<Vec<_>>();
                 Message::Join(channels)
             }
             b"TOPIC" => Message::Topic(
-                String::from_utf8(params[0].to_vec())?,
+                str(opt(message.first_parameter_as_vec())?)?,
                 params.get(1).map(|e| e.to_vec()),
             ),
-            b"PING" => Message::Ping(params[0].to_vec()),
-            b"MODE" => Message::AskModeChannel(String::from_utf8(params[0].to_vec())?),
+            b"PING" => Message::Ping(opt(message.first_parameter_as_vec())?),
+            b"MODE" => Message::AskModeChannel(str(opt(message.first_parameter_as_vec())?)?),
             b"PRIVMSG" => {
-                let target = String::from_utf8(params[0].to_vec())?;
+                let target = str(opt(message.first_parameter_as_vec())?)?;
                 let content = params[1].to_vec();
                 Message::PrivMsg(target, content)
             }
             b"NOTICE" => {
-                let target = String::from_utf8(params[0].to_vec())?;
+                let target = str(opt(message.first_parameter_as_vec())?)?;
                 let content = params[1].to_vec();
                 Message::Notice(target, content)
             }
@@ -60,7 +79,7 @@ impl TryFrom<cirque_parser::Message<'_>> for Message {
             }
             b"QUIT" => Message::Quit,
             cmd => {
-                let cmd = String::from_utf8(cmd.to_vec())?;
+                let cmd = str(cmd.to_vec())?;
                 Message::Unknown(cmd)
             }
         };

@@ -5,6 +5,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 use tokio::io::AsyncWriteExt;
 
+use crate::client_to_server::MessageDecodingError;
 use crate::server_to_client;
 use crate::transport;
 use crate::types::Channel;
@@ -17,6 +18,14 @@ pub type SharedServerState = Arc<Mutex<ServerState>>;
 
 #[derive(Error, Debug, Clone)]
 pub enum ServerStateError {
+    // NOTE: for this one, we cannot use string interpolation since the command is not a string
+    // (it might not be valid utf8)
+    #[error("400 {client} ____ :{info}")]
+    UnknownError {
+        client: String,
+        command: Vec<u8>,
+        info: String,
+    },
     #[error("401 {client} {target} :No such nick/channel")]
     NoSuchNick { client: String, target: String },
     #[error("403 {client} {channel} :No such channel")]
@@ -33,6 +42,8 @@ pub enum ServerStateError {
     NotOnChannel { client: String, channel: String },
     #[error("451 {client} :You have not registered")]
     NotRegistered { client: String },
+    #[error("461 {client} {command} :Not enough parameters")]
+    NeedMoreParams { client: String, command: String },
 }
 
 impl ServerStateError {
@@ -40,11 +51,33 @@ impl ServerStateError {
         &self,
         stream: &mut impl transport::Stream,
     ) -> std::io::Result<()> {
-        // NOTE: later we can optimize to avoid the to_string call
-        // currently it prevents us from using Vec<u8> in ServerStateError
-        stream.write_all(self.to_string().as_bytes()).await?;
+        match self {
+            ServerStateError::UnknownError {
+                client,
+                command,
+                info,
+            } => {
+                stream.write_all(b"400 {client} ____ :{info}").await?;
+                stream.write_all(client.as_bytes()).await?;
+                stream.write_all(b" ").await?;
+                stream.write_all(command).await?;
+                stream.write_all(b" :").await?;
+                stream.write_all(info.as_bytes()).await?;
+            }
+            m => {
+                // NOTE: later we can optimize to avoid the to_string call
+                // currently it prevents us from using Vec<u8> in ServerStateError
+                stream.write_all(m.to_string().as_bytes()).await?;
+            }
+        }
         Ok(())
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct ServerStateErrorWithClient {
+    client: String,
+    inner: ServerStateError,
 }
 
 enum LookupResult<'r> {
@@ -344,5 +377,30 @@ impl ServerState {
             command: command.to_owned(),
         });
         user.send(&message);
+    }
+
+    pub(crate) fn user_sends_invalid_message(
+        &mut self,
+        user_id: UserID,
+        error: MessageDecodingError,
+    ) {
+        let user = &self.users[&user_id];
+        match error {
+            MessageDecodingError::CannotDecodeUtf8 { command } => {
+                let error = crate::server_state::ServerStateError::UnknownError {
+                    client: user.nickname.clone(),
+                    command,
+                    info: "Cannot decode utf8".to_string(),
+                };
+                self.send_error(user_id, error);
+            }
+            MessageDecodingError::NotEnoughParameters { command } => {
+                let error = crate::server_state::ServerStateError::NeedMoreParams {
+                    client: user.nickname.clone(),
+                    command,
+                };
+                self.send_error(user_id, error);
+            }
+        }
     }
 }
