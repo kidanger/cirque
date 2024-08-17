@@ -14,7 +14,7 @@ pub(crate) enum Message {
     Notice(String, Vec<u8>),
     Part(Vec<ChannelID>, Option<Vec<u8>>),
     WhoWas(String, Option<usize>),
-    Quit,
+    Quit(Option<Vec<u8>>),
     Unknown(String),
 }
 
@@ -105,7 +105,10 @@ impl TryFrom<&cirque_parser::Message<'_>> for Message {
                 };
                 Message::WhoWas(target, count)
             }
-            b"QUIT" => Message::Quit,
+            b"QUIT" => {
+                let reason = message.first_parameter_as_vec();
+                Message::Quit(reason)
+            }
             cmd => {
                 let cmd = str(cmd.to_vec())?;
                 Message::Unknown(cmd)

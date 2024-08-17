@@ -201,7 +201,60 @@ impl ServerState {
         Ok(())
     }
 
-    pub(crate) fn user_disconnects(&mut self, _user_id: UserID) {}
+    pub(crate) fn user_disconnects_voluntarily(&mut self, user_id: UserID, reason: Option<&[u8]>) {
+        let user = &self.users[&user_id];
+        let reason = reason.unwrap_or(b"Client Quit");
+
+        let message = server_to_client::Message::Quit {
+            user_fullspec: user.fullspec(),
+            reason: reason.to_vec(),
+        };
+        for channel in self.channels.values_mut() {
+            if channel.users.contains(&user_id) {
+                channel.users.remove(&user_id);
+                for user_id in &channel.users {
+                    let user = &self.users[user_id];
+                    user.send(&message);
+                }
+            }
+        }
+
+        let message = server_to_client::Message::FatalError {
+            reason: (b"Closing Link: srv (".iter().copied())
+                .chain(reason.iter().copied())
+                .chain(b")".iter().copied())
+                .collect::<Vec<u8>>(),
+        };
+        user.send(&message);
+
+        self.channels.retain(|_, channel| !channel.users.is_empty());
+    }
+
+    pub(crate) fn user_disconnects_suddently(&mut self, user_id: UserID) {
+        let user = &self.users[&user_id];
+        let reason = b"Disconnected suddently.";
+
+        let message = server_to_client::Message::Quit {
+            user_fullspec: user.fullspec(),
+            reason: reason.to_vec(),
+        };
+        for channel in self.channels.values_mut() {
+            if channel.users.contains(&user_id) {
+                channel.users.remove(&user_id);
+                for user_id in &channel.users {
+                    let user = &self.users[user_id];
+                    user.send(&message);
+                }
+            }
+        }
+
+        let message = server_to_client::Message::FatalError {
+            reason: reason.to_vec(),
+        };
+        user.send(&message);
+
+        self.channels.retain(|_, channel| !channel.users.is_empty());
+    }
 
     fn lookup_target<'r>(&'r self, target: &str) -> Option<LookupResult<'r>> {
         if let Some(channel) = self.channels.get(target) {

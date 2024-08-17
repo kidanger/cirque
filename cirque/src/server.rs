@@ -16,6 +16,7 @@ pub async fn run_server(
             let (session, user) = session.connect_user(&server_state).await?;
             server_state.lock().unwrap().add_user(user);
             session.run(server_state).await?;
+            dbg!("client dropped");
             anyhow::Ok(())
         };
 

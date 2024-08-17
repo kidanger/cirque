@@ -44,6 +44,13 @@ pub enum Message {
         channel: String,
         reason: Option<Vec<u8>>,
     },
+    Quit {
+        user_fullspec: String,
+        reason: Vec<u8>,
+    },
+    FatalError {
+        reason: Vec<u8>,
+    },
     Err(ServerStateError),
 }
 
@@ -174,6 +181,21 @@ impl Message {
                     stream.write_all(b" :").await?;
                     stream.write_all(reason).await?;
                 }
+                stream.write_all(b"\r\n").await?;
+            }
+            Message::Quit {
+                user_fullspec,
+                reason,
+            } => {
+                stream.write_all(b":").await?;
+                stream.write_all(user_fullspec.as_bytes()).await?;
+                stream.write_all(b" QUIT :").await?;
+                stream.write_all(reason).await?;
+                stream.write_all(b"\r\n").await?;
+            }
+            Message::FatalError { reason } => {
+                stream.write_all(b"ERROR :").await?;
+                stream.write_all(reason).await?;
                 stream.write_all(b"\r\n").await?;
             }
             Message::Err(err) => {

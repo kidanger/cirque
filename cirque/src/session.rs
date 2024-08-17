@@ -102,7 +102,7 @@ impl ConnectingSession {
                         }
                     }
                     client_to_server::Message::User(user) => chosen_user = Some(user),
-                    client_to_server::Message::Quit => {
+                    client_to_server::Message::Quit(reason) => {
                         todo!();
                     }
                     client_to_server::Message::Unknown(command) => {
@@ -254,7 +254,10 @@ impl Session {
                     server_state.user_pings(self.user_id, token.as_deref());
                 }
                 client_to_server::Message::Pong(_) => {}
-                client_to_server::Message::Quit => return Ok(true),
+                client_to_server::Message::Quit(reason) => {
+                    server_state.user_disconnects_voluntarily(self.user_id, reason.as_deref());
+                    return Ok(true);
+                }
                 client_to_server::Message::PrivMsg(target, content) => {
                     server_state.user_messages_target(self.user_id, &target, &content);
                 }
@@ -279,18 +282,18 @@ impl Session {
 
     pub(crate) async fn run(mut self, server_state: SharedServerState) -> anyhow::Result<()> {
         // first, process potential messages in the stream parser, leftovers from the ConnectingSession
-        let mut quit = self.process_buffer(&mut server_state.lock().unwrap())?;
+        let mut client_quit = self.process_buffer(&mut server_state.lock().unwrap())?;
 
-        while !quit {
+        while !client_quit {
             tokio::select! {
                 result = self.stream.read_buf(&mut self.stream_parser) => {
                     let received = result?;
-                    anyhow::ensure!(received > 0, "stream ended");
 
-                    quit = self.process_buffer(&mut server_state.lock().unwrap())?;
-                    if quit {
+                    if received == 0 {
                         break;
                     }
+
+                    client_quit = self.process_buffer(&mut server_state.lock().unwrap())?;
                 },
                 Some(msg) = self.mailbox.recv() => {
                     msg.write_to(&mut self.stream).await?;
@@ -298,7 +301,19 @@ impl Session {
             }
         }
 
-        server_state.lock().unwrap().user_disconnects(self.user_id);
+        if client_quit {
+            // the client sent a QUIT, handle the disconnection gracefully
+            // TODO: maybe tolerate a timeout to send the last messages and then force quit
+            while let Ok(msg) = self.mailbox.try_recv() {
+                msg.write_to(&mut self.stream).await?;
+            }
+        } else {
+            // the connection was closed without notification
+            server_state
+                .lock()
+                .unwrap()
+                .user_disconnects_suddently(self.user_id);
+        }
 
         Ok(())
     }
