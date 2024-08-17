@@ -13,6 +13,7 @@ pub(crate) enum Message {
     PrivMsg(String, Vec<u8>),
     Notice(String, Vec<u8>),
     Part(Vec<ChannelID>, Option<Vec<u8>>),
+    WhoWas(String, Option<usize>),
     Quit,
     Unknown(String),
 }
@@ -20,6 +21,8 @@ pub(crate) enum Message {
 pub(crate) enum MessageDecodingError {
     CannotDecodeUtf8 { command: Vec<u8> },
     NotEnoughParameters { command: String },
+    CannotParseInteger { command: Vec<u8> },
+    NoNicknameGiven {},
 }
 
 impl TryFrom<&cirque_parser::Message<'_>> for Message {
@@ -39,7 +42,13 @@ impl TryFrom<&cirque_parser::Message<'_>> for Message {
         let params = message.parameters();
         let message = match message.command() {
             b"CAP" => Message::Cap,
-            b"NICK" => Message::Nick(str(opt(message.first_parameter_as_vec())?)?),
+            b"NICK" => {
+                let nick = message
+                    .first_parameter_as_vec()
+                    .ok_or(MessageDecodingError::NoNicknameGiven {})?;
+                let nick = str(nick)?;
+                Message::Nick(nick)
+            }
             b"USER" => Message::User(str(opt(message.first_parameter_as_vec())?)?),
             b"PONG" => Message::Pong(message.first_parameter_as_vec()),
             b"JOIN" => {
@@ -80,6 +89,21 @@ impl TryFrom<&cirque_parser::Message<'_>> for Message {
                     .collect::<Vec<_>>();
                 let reason = params.get(1).map(|e| e.to_vec());
                 Message::Part(channels, reason)
+            }
+            b"WHOWAS" => {
+                let target = str(opt(message.first_parameter_as_vec())?)?;
+                let count = if let Some(count) = params.get(1) {
+                    let count = str(count.to_vec())?;
+                    let count = count.parse::<usize>().map_err(|_| {
+                        MessageDecodingError::CannotParseInteger {
+                            command: message.command().to_vec(),
+                        }
+                    })?;
+                    Some(count)
+                } else {
+                    None
+                };
+                Message::WhoWas(target, count)
             }
             b"QUIT" => Message::Quit,
             cmd => {

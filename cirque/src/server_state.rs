@@ -36,6 +36,8 @@ pub enum ServerStateError {
     NoTextToSend { client: String },
     #[error("421 {client} {command} :Unknown command")]
     UnknownCommand { client: String, command: String },
+    #[error("431 {client} :No nickname given")]
+    NoNicknameGiven { client: String },
     #[error("433 {client} {nickname} :Nickname is already in use")]
     NicknameInUse { client: String, nickname: String },
     #[error("442 {client} {channel} :You're not on that channel")]
@@ -392,20 +394,31 @@ impl ServerState {
         error: MessageDecodingError,
     ) {
         let user = &self.users[&user_id];
+        let client = user.nickname.clone();
         match error {
             MessageDecodingError::CannotDecodeUtf8 { command } => {
                 let error = crate::server_state::ServerStateError::UnknownError {
-                    client: user.nickname.clone(),
+                    client,
                     command,
                     info: "Cannot decode utf8".to_string(),
                 };
                 self.send_error(user_id, error);
             }
             MessageDecodingError::NotEnoughParameters { command } => {
-                let error = crate::server_state::ServerStateError::NeedMoreParams {
-                    client: user.nickname.clone(),
+                let error =
+                    crate::server_state::ServerStateError::NeedMoreParams { client, command };
+                self.send_error(user_id, error);
+            }
+            MessageDecodingError::CannotParseInteger { command } => {
+                let error = crate::server_state::ServerStateError::UnknownError {
+                    client,
                     command,
+                    info: "Cannot parse integer".to_string(),
                 };
+                self.send_error(user_id, error);
+            }
+            MessageDecodingError::NoNicknameGiven {} => {
+                let error = crate::server_state::ServerStateError::NoNicknameGiven { client };
                 self.send_error(user_id, error);
             }
         }

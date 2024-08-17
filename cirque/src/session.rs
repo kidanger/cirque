@@ -62,6 +62,26 @@ impl ConnectingSession {
                         msg.write_to(&mut self.stream).await?;
                         continue;
                     }
+                    Err(MessageDecodingError::CannotParseInteger { command }) => {
+                        let msg = server_to_client::Message::Err(
+                            crate::server_state::ServerStateError::UnknownError {
+                                client: chosen_nick.clone().unwrap_or("*".to_string()),
+                                command,
+                                info: "Cannot parse integer".to_string(),
+                            },
+                        );
+                        msg.write_to(&mut self.stream).await?;
+                        continue;
+                    }
+                    Err(MessageDecodingError::NoNicknameGiven {}) => {
+                        let msg = server_to_client::Message::Err(
+                            crate::server_state::ServerStateError::NoNicknameGiven {
+                                client: chosen_nick.clone().unwrap_or("*".to_string()),
+                            },
+                        );
+                        msg.write_to(&mut self.stream).await?;
+                        continue;
+                    }
                 };
                 dbg!(&message);
 
@@ -72,14 +92,13 @@ impl ConnectingSession {
                     client_to_server::Message::Nick(nick) => {
                         let is_nickname_valid =
                             server_state.lock().unwrap().check_nickname(&nick, None);
-                        if is_nickname_valid.is_ok() {
-                            chosen_nick = Some(nick)
-                        } else {
-                            self.stream.write_all(b":srv ").await?;
-                            self.stream
-                                .write_all(is_nickname_valid.err().unwrap().to_string().as_bytes())
-                                .await?;
-                            self.stream.write_all(b"\r\n").await?;
+                        match is_nickname_valid {
+                            Ok(()) => chosen_nick = Some(nick),
+                            Err(err) => {
+                                self.stream.write_all(b":srv ").await?;
+                                err.write_to(&mut self.stream).await?;
+                                self.stream.write_all(b"\r\n").await?;
+                            }
                         }
                     }
                     client_to_server::Message::User(user) => chosen_user = Some(user),
@@ -94,15 +113,18 @@ impl ConnectingSession {
                             });
                         message.write_to(&mut self.stream).await?;
                     }
-                    _ => {
-                        // valid commands should return ErrNotRegistered when not registered
+                    client_to_server::Message::PrivMsg(_, _) => {
+                        // some valid commands should return ErrNotRegistered when not registered
                         let msg = server_to_client::Message::Err(
                             crate::server_state::ServerStateError::NotRegistered {
-                                client: chosen_nick.unwrap_or("*".to_string()),
+                                client: chosen_nick.clone().unwrap_or("*".to_string()),
                             },
                         );
                         msg.write_to(&mut self.stream).await?;
-                        anyhow::bail!("illegal command during connection");
+                        //anyhow::bail!("illegal command during connection");
+                    }
+                    _ => {
+                        // valid commands should not return replies
                     }
                 };
 
