@@ -238,6 +238,11 @@ impl Session {
                         server_state.user_joins_channel(self.user_id, &channel);
                     }
                 }
+                client_to_server::Message::Nick(nick) => {
+                    if let Err(err) = server_state.user_changes_nick(self.user_id, &nick) {
+                        server_state.send_error(self.user_id, err);
+                    }
+                }
                 client_to_server::Message::Part(channels, reason) => {
                     for channel in channels {
                         if let Err(err) =

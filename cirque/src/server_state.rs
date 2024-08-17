@@ -256,6 +256,34 @@ impl ServerState {
         self.channels.retain(|_, channel| !channel.users.is_empty());
     }
 
+    pub(crate) fn user_changes_nick(
+        &mut self,
+        user_id: UserID,
+        new_nick: &str,
+    ) -> Result<(), ServerStateError> {
+        self.check_nickname(new_nick, Some(user_id))?;
+
+        let user = self.users.get_mut(&user_id).unwrap();
+
+        let message = server_to_client::Message::Nick {
+            previous_user_fullspec: user.fullspec(),
+            nickname: new_nick.to_string(),
+        };
+        new_nick.clone_into(&mut user.nickname);
+
+        // TODO: maybe make sure we don't send it multiple times to the same client?
+        for channel in self.channels.values_mut() {
+            if channel.users.contains(&user_id) {
+                for user_id in &channel.users {
+                    let user = &self.users[user_id];
+                    user.send(&message);
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     fn lookup_target<'r>(&'r self, target: &str) -> Option<LookupResult<'r>> {
         if let Some(channel) = self.channels.get(target) {
             Some(LookupResult::Channel(channel))

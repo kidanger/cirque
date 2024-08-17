@@ -12,6 +12,10 @@ pub enum Message {
         channel: ChannelID,
         user_fullspec: String,
     },
+    Nick {
+        previous_user_fullspec: String,
+        nickname: String,
+    },
     Names {
         nickname: String,
         names: Vec<(ChannelID, Vec<String>)>,
@@ -68,6 +72,16 @@ impl Message {
                 stream.write_all(user_fullspec.as_bytes()).await?;
                 stream.write_all(b" JOIN ").await?;
                 stream.write_all(channel.as_bytes()).await?;
+                stream.write_all(b"\r\n").await?;
+            }
+            Message::Nick {
+                previous_user_fullspec,
+                nickname,
+            } => {
+                stream.write_all(b":").await?;
+                stream.write_all(previous_user_fullspec.as_bytes()).await?;
+                stream.write_all(b" NICK :").await?;
+                stream.write_all(nickname.as_bytes()).await?;
                 stream.write_all(b"\r\n").await?;
             }
             Message::Names { names, nickname } => {

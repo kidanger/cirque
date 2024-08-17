@@ -26,6 +26,7 @@ if __name__ == "__main__":
         "CHANNEL_PART",
         "PING_PONG",
         "QUIT_CHANNEL",
+        "NICK_CHANNEL",
         # disabled:
         # "ERR_UNKNOWN",
         #   because WHOWAS is not handled or something like that
