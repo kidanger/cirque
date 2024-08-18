@@ -8,6 +8,10 @@ use crate::{
 
 #[derive(Debug, Clone)]
 pub enum Message {
+    Welcome {
+        nickname: String,
+        user_fullspec: String,
+    },
     Join {
         channel: ChannelID,
         user_fullspec: String,
@@ -43,6 +47,18 @@ pub enum Message {
         target: ChannelID,
         content: Vec<u8>,
     },
+    MOTD {
+        nickname: String,
+        motd: Option<Vec<Vec<u8>>>,
+    },
+    LUsers {
+        nickname: String,
+        n_operators: usize,
+        n_unknown_connections: usize,
+        n_channels: usize,
+        n_clients: usize,
+        n_other_servers: usize,
+    },
     Part {
         user_fullspec: String,
         channel: String,
@@ -64,6 +80,34 @@ impl Message {
         stream: &mut impl transport::Stream,
     ) -> std::io::Result<()> {
         match self {
+            Message::Welcome {
+                nickname,
+                user_fullspec,
+            } => {
+                stream.write_all(b":srv 001 ").await?;
+                stream.write_all(nickname.as_bytes()).await?;
+                stream
+                    .write_all(b" :Welcome to the Internet Relay Network ")
+                    .await?;
+                stream.write_all(user_fullspec.as_bytes()).await?;
+                stream.write_all(b"\r\n").await?;
+
+                stream.write_all(b":srv 002 ").await?;
+                stream.write_all(nickname.as_bytes()).await?;
+                stream
+                    .write_all(b" :Your host is 'srv', running cirque.\r\n")
+                    .await?;
+
+                stream.write_all(b":srv 003 ").await?;
+                stream.write_all(nickname.as_bytes()).await?;
+                stream
+                    .write_all(b" :This server was created <datetime>.\r\n")
+                    .await?;
+
+                stream.write_all(b":srv 004 ").await?;
+                stream.write_all(nickname.as_bytes()).await?;
+                stream.write_all(b" srv 0 + +\r\n").await?;
+            }
             Message::Join {
                 channel,
                 user_fullspec,
@@ -181,6 +225,58 @@ impl Message {
                 stream.write_all(b" :").await?;
                 stream.write_all(content).await?;
                 stream.write_all(b"\r\n").await?;
+            }
+            Message::MOTD { nickname, motd } => match motd {
+                Some(_) => todo!(),
+                None => {
+                    stream.write_all(b":srv 422 ").await?;
+                    stream.write_all(nickname.as_bytes()).await?;
+                    stream.write_all(b" :MOTD File is missing\r\n").await?;
+                }
+            },
+            Message::LUsers {
+                nickname,
+                n_operators,
+                n_unknown_connections,
+                n_channels,
+                n_clients,
+                n_other_servers,
+            } => {
+                stream.write_all(b":srv 251 ").await?;
+                stream.write_all(nickname.as_bytes()).await?;
+                stream
+                    .write_all(b" :There are N users and 0 invisible on 1 servers\r\n")
+                    .await?;
+
+                stream.write_all(b":srv 252 ").await?;
+                stream.write_all(nickname.as_bytes()).await?;
+                stream.write_all(b" ").await?;
+                stream.write_all(n_operators.to_string().as_bytes()).await?;
+                stream.write_all(b" :operator(s) online\r\n").await?;
+
+                stream.write_all(b":srv 253 ").await?;
+                stream.write_all(nickname.as_bytes()).await?;
+                stream.write_all(b" ").await?;
+                stream
+                    .write_all(n_unknown_connections.to_string().as_bytes())
+                    .await?;
+                stream.write_all(b" :unknown connection(s)\r\n").await?;
+
+                stream.write_all(b":srv 254 ").await?;
+                stream.write_all(nickname.as_bytes()).await?;
+                stream.write_all(b" ").await?;
+                stream.write_all(n_channels.to_string().as_bytes()).await?;
+                stream.write_all(b" :channels formed\r\n").await?;
+
+                stream.write_all(b":srv 255 ").await?;
+                stream.write_all(nickname.as_bytes()).await?;
+                stream.write_all(b" :I have ").await?;
+                stream.write_all(n_clients.to_string().as_bytes()).await?;
+                stream.write_all(b" clients and ").await?;
+                stream
+                    .write_all(n_other_servers.to_string().as_bytes())
+                    .await?;
+                stream.write_all(b" servers\r\n").await?;
             }
             Message::Part {
                 user_fullspec,

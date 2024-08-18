@@ -1,6 +1,5 @@
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-use crate::client_to_server::MessageDecodingError;
 use crate::server_state::{ServerStateError, SharedServerState};
 use crate::transport::AnyStream;
 use crate::types::{User, UserID};
@@ -110,62 +109,30 @@ impl ConnectingSession {
             id: user_id,
             username: chosen_user.unwrap(),
             nickname: chosen_nick.unwrap(),
-            mailbox: tx,
+            mailbox: tx.clone(),
         };
 
-        self.stream.write_all(b":srv 001 ").await?;
-        self.stream.write_all(user.nickname.as_bytes()).await?;
-        self.stream
-            .write_all(b" :Welcome to the Internet Relay Network ")
-            .await?;
-        self.stream.write_all(user.fullspec().as_bytes()).await?;
-        self.stream.write_all(b"\r\n").await?;
+        let message = server_to_client::Message::Welcome {
+            nickname: user.nickname.to_string(),
+            user_fullspec: user.fullspec(),
+        };
+        tx.send(message).unwrap();
 
-        self.stream.write_all(b":srv 002 ").await?;
-        self.stream.write_all(user.nickname.as_bytes()).await?;
-        self.stream
-            .write_all(b" :Your host is 'srv', running cirque.\r\n")
-            .await?;
+        let message = server_to_client::Message::LUsers {
+            nickname: user.nickname.to_string(),
+            n_operators: 0,
+            n_unknown_connections: 0,
+            n_channels: 0,
+            n_clients: 1,
+            n_other_servers: 0,
+        };
+        tx.send(message).unwrap();
 
-        self.stream.write_all(b":srv 003 ").await?;
-        self.stream.write_all(user.nickname.as_bytes()).await?;
-        self.stream
-            .write_all(b" :This server was created <datetime>.\r\n")
-            .await?;
-
-        self.stream.write_all(b":srv 004 ").await?;
-        self.stream.write_all(user.nickname.as_bytes()).await?;
-        self.stream.write_all(b" srv 0 + +\r\n").await?;
-
-        self.stream.write_all(b":srv 251 ").await?;
-        self.stream.write_all(user.nickname.as_bytes()).await?;
-        self.stream
-            .write_all(b" :There are N users and 0 invisible on 1 servers\r\n")
-            .await?;
-
-        self.stream.write_all(b":srv 252 ").await?;
-        self.stream.write_all(user.nickname.as_bytes()).await?;
-        self.stream.write_all(b" 0 :operator(s) online\r\n").await?;
-
-        self.stream.write_all(b":srv 253 ").await?;
-        self.stream.write_all(user.nickname.as_bytes()).await?;
-        self.stream
-            .write_all(b" 0 :unknown connection(s)\r\n")
-            .await?;
-
-        self.stream.write_all(b":srv 254 ").await?;
-        self.stream.write_all(user.nickname.as_bytes()).await?;
-        self.stream.write_all(b" 0 :channels formed\r\n").await?;
-
-        self.stream.write_all(b":srv 255 ").await?;
-        self.stream.write_all(user.nickname.as_bytes()).await?;
-        self.stream
-            .write_all(b" :I have 1 clients and 0 servers\r\n")
-            .await?;
-
-        self.stream.write_all(b":srv 422 ").await?;
-        self.stream.write_all(user.nickname.as_bytes()).await?;
-        self.stream.write_all(b" :MOTD File is missing\r\n").await?;
+        let message = server_to_client::Message::MOTD {
+            nickname: user.nickname.to_string(),
+            motd: None,
+        };
+        tx.send(message).unwrap();
 
         let session = Session {
             stream: self.stream,
