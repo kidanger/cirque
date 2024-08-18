@@ -28,6 +28,7 @@ if __name__ == "__main__":
         "QUIT_CHANNEL",
         "NICK_CHANNEL",
         "CONNECTION_REGISTRATION",
+        "PRIVMSG_NOTICE",
         # disabled:
         # "ERR_UNKNOWN",
         #   because WHOWAS is not handled or something like that
