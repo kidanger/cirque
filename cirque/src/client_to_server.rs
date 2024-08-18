@@ -49,7 +49,15 @@ impl TryFrom<&cirque_parser::Message<'_>> for Message {
                 let nick = str(nick)?;
                 Message::Nick(nick)
             }
-            b"USER" => Message::User(str(opt(message.first_parameter_as_vec())?)?),
+            b"USER" => {
+                let user = str(opt(message.first_parameter_as_vec())?)?;
+                if params.len() < 4 || user.is_empty() {
+                    return Err(MessageDecodingError::NotEnoughParameters {
+                        command: str(message.command().to_vec())?,
+                    });
+                }
+                Message::User(user)
+            }
             b"PONG" => Message::Pong(message.first_parameter_as_vec()),
             b"JOIN" => {
                 let channels = message
