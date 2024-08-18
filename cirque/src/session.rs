@@ -105,34 +105,13 @@ impl ConnectingSession {
 
         let user_id = UserID::generate();
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+
         let user = User {
             id: user_id,
             username: chosen_user.unwrap(),
             nickname: chosen_nick.unwrap(),
-            mailbox: tx.clone(),
+            mailbox: tx,
         };
-
-        let message = server_to_client::Message::Welcome {
-            nickname: user.nickname.to_string(),
-            user_fullspec: user.fullspec(),
-        };
-        tx.send(message).unwrap();
-
-        let message = server_to_client::Message::LUsers {
-            nickname: user.nickname.to_string(),
-            n_operators: 0,
-            n_unknown_connections: 0,
-            n_channels: 0,
-            n_clients: 1,
-            n_other_servers: 0,
-        };
-        tx.send(message).unwrap();
-
-        let message = server_to_client::Message::MOTD {
-            nickname: user.nickname.to_string(),
-            motd: None,
-        };
-        tx.send(message).unwrap();
 
         let session = Session {
             stream: self.stream,
@@ -210,6 +189,9 @@ impl Session {
                     if let Err(err) = server_state.user_topic(self.user_id, &target, &content) {
                         server_state.send_error(self.user_id, err);
                     }
+                }
+                client_to_server::Message::MOTD() => {
+                    server_state.user_wants_motd(self.user_id);
                 }
                 client_to_server::Message::Unknown(command) => {
                     server_state.user_sends_unknown_command(self.user_id, &command);

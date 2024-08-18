@@ -47,6 +47,7 @@ pub enum Message {
         target: ChannelID,
         content: Vec<u8>,
     },
+    #[allow(clippy::upper_case_acronyms)]
     MOTD {
         nickname: String,
         motd: Option<Vec<Vec<u8>>>,
@@ -227,7 +228,25 @@ impl Message {
                 stream.write_all(b"\r\n").await?;
             }
             Message::MOTD { nickname, motd } => match motd {
-                Some(_) => todo!(),
+                Some(motd) => {
+                    stream.write_all(b":srv 375 ").await?;
+                    stream.write_all(nickname.as_bytes()).await?;
+                    stream
+                        .write_all(b" :- <server> Message of the day - \r\n")
+                        .await?;
+
+                    for line in motd {
+                        stream.write_all(b":srv 372 ").await?;
+                        stream.write_all(nickname.as_bytes()).await?;
+                        stream.write_all(b" :- ").await?;
+                        stream.write_all(line).await?;
+                        stream.write_all(b"\r\n").await?;
+                    }
+
+                    stream.write_all(b":srv 376 ").await?;
+                    stream.write_all(nickname.as_bytes()).await?;
+                    stream.write_all(b" :End of MOTD command\r\n").await?;
+                }
                 None => {
                     stream.write_all(b":srv 422 ").await?;
                     stream.write_all(nickname.as_bytes()).await?;

@@ -119,16 +119,28 @@ enum LookupResult<'r> {
     User(&'r User),
 }
 
-#[derive(Debug, Default)]
 pub struct ServerState {
     users: HashMap<UserID, User>,
     connecting_users: Vec<ConnectingUser>,
     channels: HashMap<ChannelID, Channel>,
+    motd_provider: Arc<dyn MOTDProvider + Send + Sync>,
 }
 
 impl ServerState {
-    pub fn new() -> Self {
-        Default::default()
+    pub fn new<MP>(motd_provider: Arc<MP>) -> Self
+    where
+        MP: MOTDProvider + Send + Sync + 'static,
+    {
+        Self {
+            users: Default::default(),
+            connecting_users: Default::default(),
+            channels: Default::default(),
+            motd_provider,
+        }
+    }
+
+    pub(crate) fn shared(self) -> SharedServerState {
+        Arc::new(Mutex::new(self))
     }
 
     pub(crate) fn check_nickname(
@@ -486,7 +498,29 @@ impl ServerState {
         }
     }
 
-    pub(crate) fn add_user(&mut self, user: User) {
+    pub(crate) fn user_connects(&mut self, user: User) {
+        let message = server_to_client::Message::Welcome {
+            nickname: user.nickname.clone(),
+            user_fullspec: user.fullspec(),
+        };
+        user.send(&message);
+
+        let message = server_to_client::Message::LUsers {
+            nickname: user.nickname.to_string(),
+            n_operators: 0,
+            n_unknown_connections: 0,
+            n_channels: 0,
+            n_clients: 1,
+            n_other_servers: 0,
+        };
+        user.send(&message);
+
+        let message = server_to_client::Message::MOTD {
+            nickname: user.nickname.to_string(),
+            motd: self.motd_provider.motd(),
+        };
+        user.send(&message);
+
         self.users.insert(user.id, user);
     }
 
@@ -518,4 +552,17 @@ impl ServerState {
             self.send_error(user_id, err);
         }
     }
+
+    pub(crate) fn user_wants_motd(&self, user_id: UserID) {
+        let user = &self.users[&user_id];
+        let message = server_to_client::Message::MOTD {
+            nickname: user.nickname.clone(),
+            motd: self.motd_provider.motd(),
+        };
+        user.send(&message);
+    }
+}
+
+pub trait MOTDProvider {
+    fn motd(&self) -> Option<Vec<Vec<u8>>>;
 }

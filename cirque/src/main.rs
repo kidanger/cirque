@@ -1,6 +1,6 @@
 use std::fs::File;
 use std::io::BufReader;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::{path::PathBuf, str::FromStr};
 
 mod config;
@@ -9,9 +9,17 @@ use cirque::run_server;
 use cirque::ServerState;
 use cirque::{TCPListener, TLSListener};
 
+#[derive(Debug)]
+struct NoMOTDProvider;
+impl cirque::MOTDProvider for NoMOTDProvider {
+    fn motd(&self) -> Option<Vec<Vec<u8>>> {
+        None
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
-    let server_state = Arc::new(Mutex::new(ServerState::new()));
+    let server_state = ServerState::new(Arc::new(NoMOTDProvider {}));
 
     let config_path = PathBuf::from_str("ircd.yml")?;
     if let Ok(config) = config::Config::load_from_path(&config_path) {

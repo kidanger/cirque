@@ -29,6 +29,7 @@ if __name__ == "__main__":
         "NICK_CHANNEL",
         "CONNECTION_REGISTRATION",
         "PRIVMSG_NOTICE",
+        "MOTD",
         # disabled:
         # "ERR_UNKNOWN",
         #   because WHOWAS is not handled or something like that
