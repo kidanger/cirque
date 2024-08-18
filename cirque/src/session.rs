@@ -42,48 +42,14 @@ impl ConnectingSession {
                 let message = match client_to_server::Message::try_from(&message) {
                     Ok(message) => message,
                     Err(err) => {
-                        let err = match err {
-                            MessageDecodingError::CannotDecodeUtf8 { command } => {
-                                crate::server_state::ServerStateError::UnknownError {
-                                    client: chosen_nick.clone().unwrap_or("*".to_string()),
-                                    command,
-                                    info: "Cannot decode utf8".to_string(),
-                                }
-                            }
-                            MessageDecodingError::NotEnoughParameters { command } => {
-                                crate::server_state::ServerStateError::NeedMoreParams {
-                                    client: chosen_nick.clone().unwrap_or("*".to_string()),
-                                    command,
-                                }
-                            }
-                            MessageDecodingError::CannotParseInteger { command } => {
-                                crate::server_state::ServerStateError::UnknownError {
-                                    client: chosen_nick.clone().unwrap_or("*".to_string()),
-                                    command,
-                                    info: "Cannot parse integer".to_string(),
-                                }
-                            }
-                            MessageDecodingError::NoNicknameGiven {} => {
-                                crate::server_state::ServerStateError::NoNicknameGiven {
-                                    client: chosen_nick.clone().unwrap_or("*".to_string()),
-                                }
-                            }
-                            MessageDecodingError::NoTextToSend {} => {
-                                crate::server_state::ServerStateError::NoTextToSend {
-                                    client: chosen_nick.clone().unwrap_or("*".to_string()),
-                                }
-                            }
-                            MessageDecodingError::NoRecipient { command } => {
-                                crate::server_state::ServerStateError::NoRecipient {
-                                    client: chosen_nick.clone().unwrap_or("*".to_string()),
-                                    command,
-                                }
-                            }
-                            MessageDecodingError::SilentError {} => todo!(),
-                        };
-
-                        let message = server_to_client::Message::Err(err);
-                        message.write_to(&mut self.stream).await?;
+                        let client = chosen_nick.clone().unwrap_or("*".to_string());
+                        if let Some(err) =
+                            ServerStateError::from_decoding_error_with_client(err, client)
+                        {
+                            server_to_client::Message::Err(err)
+                                .write_to(&mut self.stream)
+                                .await?;
+                        }
                         continue;
                     }
                 };

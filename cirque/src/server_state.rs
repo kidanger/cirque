@@ -76,6 +76,42 @@ impl ServerStateError {
         }
         Ok(())
     }
+
+    pub(crate) fn from_decoding_error_with_client(
+        err: MessageDecodingError,
+        client: String,
+    ) -> Option<ServerStateError> {
+        let err = match err {
+            MessageDecodingError::CannotDecodeUtf8 { command } => {
+                crate::server_state::ServerStateError::UnknownError {
+                    client,
+                    command,
+                    info: "Cannot decode utf8".to_string(),
+                }
+            }
+            MessageDecodingError::NotEnoughParameters { command } => {
+                crate::server_state::ServerStateError::NeedMoreParams { client, command }
+            }
+            MessageDecodingError::CannotParseInteger { command } => {
+                crate::server_state::ServerStateError::UnknownError {
+                    client,
+                    command,
+                    info: "Cannot parse integer".to_string(),
+                }
+            }
+            MessageDecodingError::NoNicknameGiven {} => {
+                crate::server_state::ServerStateError::NoNicknameGiven { client }
+            }
+            MessageDecodingError::NoTextToSend {} => {
+                crate::server_state::ServerStateError::NoTextToSend { client }
+            }
+            MessageDecodingError::NoRecipient { command } => {
+                crate::server_state::ServerStateError::NoRecipient { client, command }
+            }
+            MessageDecodingError::SilentError {} => return None,
+        };
+        Some(err)
+    }
 }
 
 enum LookupResult<'r> {
@@ -478,37 +514,8 @@ impl ServerState {
     ) {
         let user = &self.users[&user_id];
         let client = user.nickname.clone();
-        let error = match error {
-            MessageDecodingError::CannotDecodeUtf8 { command } => {
-                crate::server_state::ServerStateError::UnknownError {
-                    client,
-                    command,
-                    info: "Cannot decode utf8".to_string(),
-                }
-            }
-            MessageDecodingError::NotEnoughParameters { command } => {
-                crate::server_state::ServerStateError::NeedMoreParams { client, command }
-            }
-            MessageDecodingError::CannotParseInteger { command } => {
-                crate::server_state::ServerStateError::UnknownError {
-                    client,
-                    command,
-                    info: "Cannot parse integer".to_string(),
-                }
-            }
-            MessageDecodingError::NoNicknameGiven {} => {
-                crate::server_state::ServerStateError::NoNicknameGiven { client }
-            }
-            MessageDecodingError::NoTextToSend {} => {
-                crate::server_state::ServerStateError::NoTextToSend { client }
-            }
-            MessageDecodingError::NoRecipient { command } => {
-                crate::server_state::ServerStateError::NoRecipient { client, command }
-            }
-            MessageDecodingError::SilentError {} => {
-                return;
-            }
-        };
-        self.send_error(user_id, error);
+        if let Some(err) = ServerStateError::from_decoding_error_with_client(error, client) {
+            self.send_error(user_id, err);
+        }
     }
 }
