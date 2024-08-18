@@ -32,6 +32,8 @@ pub enum ServerStateError {
     NoSuchChannel { client: String, channel: String },
     #[error("404 {client} {channel} :Cannot send to channel")]
     CannotSendToChan { client: String, channel: String },
+    #[error("411 {client} :No recipient given ({command})")]
+    NoRecipient { client: String, command: String },
     #[error("412 {client} :No text to send")]
     NoTextToSend { client: String },
     #[error("421 {client} {command} :Unknown command")]
@@ -476,32 +478,37 @@ impl ServerState {
     ) {
         let user = &self.users[&user_id];
         let client = user.nickname.clone();
-        match error {
+        let error = match error {
             MessageDecodingError::CannotDecodeUtf8 { command } => {
-                let error = crate::server_state::ServerStateError::UnknownError {
+                crate::server_state::ServerStateError::UnknownError {
                     client,
                     command,
                     info: "Cannot decode utf8".to_string(),
-                };
-                self.send_error(user_id, error);
+                }
             }
             MessageDecodingError::NotEnoughParameters { command } => {
-                let error =
-                    crate::server_state::ServerStateError::NeedMoreParams { client, command };
-                self.send_error(user_id, error);
+                crate::server_state::ServerStateError::NeedMoreParams { client, command }
             }
             MessageDecodingError::CannotParseInteger { command } => {
-                let error = crate::server_state::ServerStateError::UnknownError {
+                crate::server_state::ServerStateError::UnknownError {
                     client,
                     command,
                     info: "Cannot parse integer".to_string(),
-                };
-                self.send_error(user_id, error);
+                }
             }
             MessageDecodingError::NoNicknameGiven {} => {
-                let error = crate::server_state::ServerStateError::NoNicknameGiven { client };
-                self.send_error(user_id, error);
+                crate::server_state::ServerStateError::NoNicknameGiven { client }
             }
-        }
+            MessageDecodingError::NoTextToSend {} => {
+                crate::server_state::ServerStateError::NoTextToSend { client }
+            }
+            MessageDecodingError::NoRecipient { command } => {
+                crate::server_state::ServerStateError::NoRecipient { client, command }
+            }
+            MessageDecodingError::SilentError {} => {
+                return;
+            }
+        };
+        self.send_error(user_id, error);
     }
 }

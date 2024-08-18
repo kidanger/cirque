@@ -23,6 +23,9 @@ pub(crate) enum MessageDecodingError {
     NotEnoughParameters { command: String },
     CannotParseInteger { command: Vec<u8> },
     NoNicknameGiven {},
+    NoTextToSend {},
+    NoRecipient { command: String },
+    SilentError {},
 }
 
 impl TryFrom<&cirque_parser::Message<'_>> for Message {
@@ -77,13 +80,28 @@ impl TryFrom<&cirque_parser::Message<'_>> for Message {
             b"PING" => Message::Ping(message.first_parameter_as_vec()),
             b"MODE" => Message::AskModeChannel(str(opt(message.first_parameter_as_vec())?)?),
             b"PRIVMSG" => {
-                let target = str(opt(message.first_parameter_as_vec())?)?;
-                let content = params[1].to_vec();
+                let target =
+                    message
+                        .first_parameter_as_vec()
+                        .ok_or(MessageDecodingError::NoRecipient {
+                            command: str(message.command().to_vec())?,
+                        })?;
+                let target = str(target)?;
+                let content = params
+                    .get(1)
+                    .ok_or(MessageDecodingError::NoTextToSend {})?
+                    .to_vec();
                 Message::PrivMsg(target, content)
             }
             b"NOTICE" => {
-                let target = str(opt(message.first_parameter_as_vec())?)?;
-                let content = params[1].to_vec();
+                let target = message
+                    .first_parameter_as_vec()
+                    .ok_or(MessageDecodingError::SilentError {})?;
+                let target = str(target)?;
+                let content = params
+                    .get(1)
+                    .ok_or(MessageDecodingError::SilentError {})?
+                    .to_vec();
                 Message::Notice(target, content)
             }
             b"PART" => {
