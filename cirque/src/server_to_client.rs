@@ -111,9 +111,9 @@ impl Message {
                 stream.write_all(context.server_name.as_bytes()).await?;
                 stream.write_all(b" 002 ").await?;
                 stream.write_all(nickname.as_bytes()).await?;
-                stream
-                    .write_all(b" :Your host is 'srv', running cirque.\r\n")
-                    .await?;
+                stream.write_all(b" :Your host is '").await?;
+                stream.write_all(context.server_name.as_bytes()).await?;
+                stream.write_all(b"', running cirque.\r\n").await?;
 
                 stream.write_all(b":").await?;
                 stream.write_all(context.server_name.as_bytes()).await?;

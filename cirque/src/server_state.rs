@@ -277,7 +277,9 @@ impl ServerState {
         }
 
         let message = server_to_client::Message::FatalError {
-            reason: (b"Closing Link: srv (".iter().copied())
+            reason: (b"Closing Link: ".iter().copied())
+                .chain(self.server_name.as_bytes().iter().copied())
+                .chain(b" (".iter().copied())
                 .chain(reason.iter().copied())
                 .chain(b")".iter().copied())
                 .collect::<Vec<u8>>(),
