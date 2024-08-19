@@ -12,8 +12,7 @@ pub async fn run_server(listener: impl Listener, server_state: ServerState) -> a
         let server_state = server_state.clone();
         let fut = async move {
             let session = ConnectingSession::new(stream);
-            let (session, user) = session.connect_user(&server_state).await?;
-            server_state.lock().unwrap().user_connects(user);
+            let session = session.run(&server_state).await?;
             session.run(server_state).await?;
             dbg!("client dropped");
             anyhow::Ok(())
