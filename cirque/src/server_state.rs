@@ -194,8 +194,10 @@ impl ServerState {
 
         // send topic and names to the joiner
         let user = &self.users[&user_id];
+
+        dbg!(&channel.topic);
         if channel.topic.is_valid() {
-            let message = server_to_client::Message::Topic {
+            let message = server_to_client::Message::RplTopic {
                 nickname: user.nickname.to_owned(),
                 channel: channel_name.to_owned(),
                 topic: Some(channel.topic.clone()),
@@ -444,58 +446,81 @@ impl ServerState {
         user.send(&message);
     }
 
-    pub(crate) fn user_topic(
+    pub(crate) fn user_sets_topic(
         &mut self,
         user_id: UserID,
         target: &str,
-        content: &Option<Vec<u8>>,
+        content: &Vec<u8>,
     ) -> Result<(), ServerStateError> {
         let user = &self.users[&user_id];
 
-        if self.users.values().any(|u| u.nickname == target) {
+        let Some(channel) = self.channels.get_mut(target) else {
+            return Err(ServerStateError::NotOnChannel {
+                client: user.nickname.clone(),
+                channel: target.into(),
+            });
+        };
+
+        if !channel.users.contains(&user_id) {
             return Err(ServerStateError::NotOnChannel {
                 client: user.nickname.clone(),
                 channel: target.into(),
             });
         }
 
-        if let Some(channel) = self.channels.get_mut(target) {
-            //Set a new topic
-            if let Some(content) = content {
-                channel.topic.content.clone_from(content);
-                channel.topic.ts = SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap()
-                    .as_secs();
-                channel.topic.from_nickname.clone_from(&user.nickname);
+        channel.topic.content.clone_from(content);
+        channel.topic.ts = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        channel.topic.from_nickname.clone_from(&user.nickname);
 
-                let message = &server_to_client::Message::Topic {
-                    nickname: user.nickname.clone(),
-                    channel: target.into(),
-                    topic: Some(channel.topic.clone()),
-                };
-                channel
-                    .users
-                    .iter()
-                    .flat_map(|u| self.users.get(u))
-                    .for_each(|u| u.send(message));
-                Ok(())
-            } else {
-                //view a current topic
-                let message = server_to_client::Message::Topic {
-                    nickname: user.nickname.clone(),
-                    channel: target.into(),
-                    topic: Some(channel.topic.clone()),
-                };
-                user.send(&message);
-                Ok(())
-            }
-        } else {
-            Err(ServerStateError::NoSuchChannel {
+        let message = &server_to_client::Message::Topic {
+            user_fullspec: user.fullspec(),
+            channel: target.into(),
+            topic: channel.topic.clone(),
+        };
+        channel
+            .users
+            .iter()
+            .flat_map(|u| self.users.get(u))
+            .for_each(|u| u.send(message));
+        Ok(())
+    }
+
+    pub(crate) fn user_wants_topic(
+        &mut self,
+        user_id: UserID,
+        target: &str,
+    ) -> Result<(), ServerStateError> {
+        let user = &self.users[&user_id];
+
+        let Some(channel) = self.channels.get_mut(target) else {
+            return Err(ServerStateError::NotOnChannel {
                 client: user.nickname.clone(),
                 channel: target.into(),
-            })
+            });
+        };
+
+        if !channel.users.contains(&user_id) {
+            return Err(ServerStateError::NotOnChannel {
+                client: user.nickname.clone(),
+                channel: target.into(),
+            });
         }
+
+        let topic = &channel.topic;
+        let message = server_to_client::Message::RplTopic {
+            nickname: user.nickname.clone(),
+            channel: target.into(),
+            topic: if topic.is_valid() {
+                Some(channel.topic.clone())
+            } else {
+                None
+            },
+        };
+        user.send(&message);
+        Ok(())
     }
 
     pub(crate) fn user_connects(&mut self, user: User) {

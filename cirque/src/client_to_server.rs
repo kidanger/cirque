@@ -8,7 +8,8 @@ pub(crate) enum Message {
     Ping(Option<Vec<u8>>),
     Pong(Option<Vec<u8>>),
     Join(Vec<ChannelID>),
-    Topic(ChannelID, Option<Vec<u8>>),
+    GetTopic(ChannelID),
+    SetTopic(ChannelID, Vec<u8>),
     AskModeChannel(ChannelID),
     PrivMsg(String, Vec<u8>),
     Notice(String, Vec<u8>),
@@ -75,10 +76,16 @@ impl TryFrom<&cirque_parser::Message<'_>> for Message {
                     .collect::<Vec<_>>();
                 Message::Join(channels)
             }
-            b"TOPIC" => Message::Topic(
-                str(opt(message.first_parameter_as_vec())?)?,
-                params.get(1).map(|e| e.to_vec()),
-            ),
+            b"TOPIC" => {
+                let target = str(opt(message.first_parameter_as_vec())?)?;
+                match params.get(1) {
+                    Some(content) => {
+                        let content = content.to_vec();
+                        Message::SetTopic(target, content)
+                    }
+                    None => Message::GetTopic(target),
+                }
+            }
             b"PING" => Message::Ping(message.first_parameter_as_vec()),
             b"MODE" => Message::AskModeChannel(str(opt(message.first_parameter_as_vec())?)?),
             b"PRIVMSG" => {

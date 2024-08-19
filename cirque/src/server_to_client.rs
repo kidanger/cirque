@@ -24,10 +24,17 @@ pub enum Message {
         nickname: String,
         names: Vec<(ChannelID, Vec<String>)>,
     },
-    Topic {
+    /// reply to a GetTopic command or Join command
+    RplTopic {
         nickname: String,
         channel: String,
         topic: Option<Topic>,
+    },
+    /// reply to SetTopic by the user or another user
+    Topic {
+        user_fullspec: String,
+        channel: String,
+        topic: Topic,
     },
     Pong {
         token: Option<Vec<u8>>,
@@ -148,7 +155,7 @@ impl Message {
                     stream.write_all(b" :End of NAMES list\r\n").await?;
                 }
             }
-            Message::Topic {
+            Message::RplTopic {
                 nickname,
                 channel,
                 topic,
@@ -162,15 +169,18 @@ impl Message {
                     stream.write_all(&topic.content).await?;
                     stream.write_all(b"\r\n").await?;
 
-                    stream.write_all(b":srv 333 ").await?;
-                    stream.write_all(nickname.as_bytes()).await?;
-                    stream.write_all(b" ").await?;
-                    stream.write_all(channel.as_bytes()).await?;
-                    stream.write_all(b" ").await?;
-                    stream.write_all(topic.from_nickname.as_bytes()).await?;
-                    stream.write_all(b" ").await?;
-                    stream.write_all(topic.ts.to_string().as_bytes()).await?;
-                    stream.write_all(b"\r\n").await?;
+                    // for now this is disabled because chirc testsuite doesn't like it
+                    if false {
+                        stream.write_all(b":srv 333 ").await?;
+                        stream.write_all(nickname.as_bytes()).await?;
+                        stream.write_all(b" ").await?;
+                        stream.write_all(channel.as_bytes()).await?;
+                        stream.write_all(b" ").await?;
+                        stream.write_all(topic.from_nickname.as_bytes()).await?;
+                        stream.write_all(b" ").await?;
+                        stream.write_all(topic.ts.to_string().as_bytes()).await?;
+                        stream.write_all(b"\r\n").await?;
+                    }
                 } else {
                     stream.write_all(b":srv 331 ").await?;
                     stream.write_all(nickname.as_bytes()).await?;
@@ -179,6 +189,19 @@ impl Message {
                     stream.write_all(b" :No topic is set").await?;
                     stream.write_all(b"\r\n").await?;
                 }
+            }
+            Message::Topic {
+                user_fullspec,
+                channel,
+                topic,
+            } => {
+                stream.write_all(b":").await?;
+                stream.write_all(user_fullspec.as_bytes()).await?;
+                stream.write_all(b" TOPIC ").await?;
+                stream.write_all(channel.as_bytes()).await?;
+                stream.write_all(b" :").await?;
+                stream.write_all(&topic.content).await?;
+                stream.write_all(b"\r\n").await?;
             }
             Message::Pong { token } => {
                 stream.write_all(b"PONG :srv").await?;

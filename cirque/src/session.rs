@@ -185,8 +185,14 @@ impl Session {
                 client_to_server::Message::Notice(target, content) => {
                     server_state.user_notices_target(self.user_id, &target, &content);
                 }
-                client_to_server::Message::Topic(target, content) => {
-                    if let Err(err) = server_state.user_topic(self.user_id, &target, &content) {
+                client_to_server::Message::SetTopic(target, content) => {
+                    if let Err(err) = server_state.user_sets_topic(self.user_id, &target, &content)
+                    {
+                        server_state.send_error(self.user_id, err);
+                    }
+                }
+                client_to_server::Message::GetTopic(target) => {
+                    if let Err(err) = server_state.user_wants_topic(self.user_id, &target) {
                         server_state.send_error(self.user_id, err);
                     }
                 }

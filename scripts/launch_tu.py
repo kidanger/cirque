@@ -30,6 +30,7 @@ if __name__ == "__main__":
         "CONNECTION_REGISTRATION",
         "PRIVMSG_NOTICE",
         "MOTD",
+        "CHANNEL_TOPIC",
         # disabled:
         # "ERR_UNKNOWN",
         #   because WHOWAS is not handled or something like that
