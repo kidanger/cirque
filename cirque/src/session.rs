@@ -219,6 +219,9 @@ impl Session {
     }
 
     pub(crate) async fn run(mut self, server_state: SharedServerState) -> anyhow::Result<()> {
+        let message_context = server_to_client::MessageContext {
+            server_name: server_state.lock().unwrap().server_name().to_owned(),
+        };
         let mut stream_parser = StreamParser::default();
 
         let (user, mut rx) = RegisteringUser::new();
@@ -237,8 +240,8 @@ impl Session {
                     state = state.process_buffer(&mut server_state.lock().unwrap(), &mut stream_parser)?;
                 },
                 Some(message) = rx.recv() => {
-                    message.write_to(&mut self.stream).await?;
-                    self.stream.flush().await?;
+                    message.write_to(&mut self.stream, &message_context).await?;
+                    //self.stream.flush().await?;
                 }
             }
         }
@@ -247,10 +250,10 @@ impl Session {
             // the client sent a QUIT, handle the disconnection gracefully
             // TODO: maybe tolerate a timeout to send the last messages and then force quit
             while let Ok(msg) = rx.try_recv() {
-                msg.write_to(&mut self.stream).await?;
+                msg.write_to(&mut self.stream, &message_context).await?;
             }
-            self.stream.flush().await?;
-        } else {
+            //self.stream.flush().await?;
+        } else if let SessionState::Registered(_) = state {
             // the connection was closed without notification
             server_state
                 .lock()

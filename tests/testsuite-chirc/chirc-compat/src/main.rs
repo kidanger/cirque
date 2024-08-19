@@ -10,7 +10,10 @@ struct Args {
     port: u16,
 
     #[arg(short, long)]
-    oper_password: String,
+    oper_password: Option<String>,
+
+    #[arg(short, long)]
+    server_name: Option<String>,
 }
 
 struct FileMOTDProvider {
@@ -38,6 +41,9 @@ async fn main() -> anyhow::Result<()> {
         filename: "motd.txt".to_string(),
     });
 
-    let server_state = ServerState::new(motd_provider);
+    let server_name = args.server_name.as_deref().unwrap_or("srv");
+
+    let server_state = ServerState::new(server_name, motd_provider);
+    dbg!("starting server");
     cirque::run_server(listener, server_state).await
 }

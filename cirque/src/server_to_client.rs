@@ -82,17 +82,24 @@ pub enum Message {
     Err(ServerStateError),
 }
 
+pub(crate) struct MessageContext {
+    pub(crate) server_name: String,
+}
+
 impl Message {
     pub(crate) async fn write_to(
         &self,
         stream: &mut impl transport::Stream,
+        context: &MessageContext,
     ) -> std::io::Result<()> {
         match self {
             Message::Welcome {
                 nickname,
                 user_fullspec,
             } => {
-                stream.write_all(b":srv 001 ").await?;
+                stream.write_all(b":").await?;
+                stream.write_all(context.server_name.as_bytes()).await?;
+                stream.write_all(b" 001 ").await?;
                 stream.write_all(nickname.as_bytes()).await?;
                 stream
                     .write_all(b" :Welcome to the Internet Relay Network ")
@@ -100,21 +107,29 @@ impl Message {
                 stream.write_all(user_fullspec.as_bytes()).await?;
                 stream.write_all(b"\r\n").await?;
 
-                stream.write_all(b":srv 002 ").await?;
+                stream.write_all(b":").await?;
+                stream.write_all(context.server_name.as_bytes()).await?;
+                stream.write_all(b" 002 ").await?;
                 stream.write_all(nickname.as_bytes()).await?;
                 stream
                     .write_all(b" :Your host is 'srv', running cirque.\r\n")
                     .await?;
 
-                stream.write_all(b":srv 003 ").await?;
+                stream.write_all(b":").await?;
+                stream.write_all(context.server_name.as_bytes()).await?;
+                stream.write_all(b" 003 ").await?;
                 stream.write_all(nickname.as_bytes()).await?;
                 stream
                     .write_all(b" :This server was created <datetime>.\r\n")
                     .await?;
 
-                stream.write_all(b":srv 004 ").await?;
+                stream.write_all(b":").await?;
+                stream.write_all(context.server_name.as_bytes()).await?;
+                stream.write_all(b" 004 ").await?;
                 stream.write_all(nickname.as_bytes()).await?;
-                stream.write_all(b" srv 0 + +\r\n").await?;
+                stream.write_all(b" ").await?;
+                stream.write_all(context.server_name.as_bytes()).await?;
+                stream.write_all(b" 0 + +\r\n").await?;
             }
             Message::Join {
                 channel,
@@ -138,7 +153,9 @@ impl Message {
             }
             Message::Names { names, nickname } => {
                 for (channel, nicknames) in names {
-                    stream.write_all(b":srv 353 ").await?;
+                    stream.write_all(b":").await?;
+                    stream.write_all(context.server_name.as_bytes()).await?;
+                    stream.write_all(b" 353 ").await?;
                     stream.write_all(nickname.as_bytes()).await?;
                     stream.write_all(b" = ").await?;
                     stream.write_all(channel.as_bytes()).await?;
@@ -151,7 +168,9 @@ impl Message {
                         }
                     }
                     stream.write_all(b"\r\n").await?;
-                    stream.write_all(b":srv 366 ").await?;
+                    stream.write_all(b":").await?;
+                    stream.write_all(context.server_name.as_bytes()).await?;
+                    stream.write_all(b" 366 ").await?;
                     stream.write_all(nickname.as_bytes()).await?;
                     stream.write_all(b" ").await?;
                     stream.write_all(channel.as_bytes()).await?;
@@ -164,7 +183,9 @@ impl Message {
                 topic,
             } => {
                 if let Some(topic) = topic {
-                    stream.write_all(b":srv 332 ").await?;
+                    stream.write_all(b":").await?;
+                    stream.write_all(context.server_name.as_bytes()).await?;
+                    stream.write_all(b" 332 ").await?;
                     stream.write_all(nickname.as_bytes()).await?;
                     stream.write_all(b" ").await?;
                     stream.write_all(channel.as_bytes()).await?;
@@ -174,7 +195,9 @@ impl Message {
 
                     // for now this is disabled because chirc testsuite doesn't like it
                     if false {
-                        stream.write_all(b":srv 333 ").await?;
+                        stream.write_all(b":").await?;
+                        stream.write_all(context.server_name.as_bytes()).await?;
+                        stream.write_all(b" 333 ").await?;
                         stream.write_all(nickname.as_bytes()).await?;
                         stream.write_all(b" ").await?;
                         stream.write_all(channel.as_bytes()).await?;
@@ -185,7 +208,9 @@ impl Message {
                         stream.write_all(b"\r\n").await?;
                     }
                 } else {
-                    stream.write_all(b":srv 331 ").await?;
+                    stream.write_all(b":").await?;
+                    stream.write_all(context.server_name.as_bytes()).await?;
+                    stream.write_all(b" 331 ").await?;
                     stream.write_all(nickname.as_bytes()).await?;
                     stream.write_all(b" ").await?;
                     stream.write_all(channel.as_bytes()).await?;
@@ -207,7 +232,8 @@ impl Message {
                 stream.write_all(b"\r\n").await?;
             }
             Message::Pong { token } => {
-                stream.write_all(b"PONG srv").await?;
+                stream.write_all(b"PONG ").await?;
+                stream.write_all(context.server_name.as_bytes()).await?;
                 if let Some(token) = token {
                     stream.write_all(b" :").await?;
                     stream.write_all(token).await?;
@@ -219,7 +245,9 @@ impl Message {
                 channel,
                 mode,
             } => {
-                stream.write_all(b":srv 324 ").await?;
+                stream.write_all(b":").await?;
+                stream.write_all(context.server_name.as_bytes()).await?;
+                stream.write_all(b" 324 ").await?;
                 stream.write_all(nickname.as_bytes()).await?;
                 stream.write_all(b" ").await?;
                 stream.write_all(channel.as_bytes()).await?;
@@ -255,26 +283,34 @@ impl Message {
             }
             Message::MOTD { nickname, motd } => match motd {
                 Some(motd) => {
-                    stream.write_all(b":srv 375 ").await?;
+                    stream.write_all(b":").await?;
+                    stream.write_all(context.server_name.as_bytes()).await?;
+                    stream.write_all(b" 375 ").await?;
                     stream.write_all(nickname.as_bytes()).await?;
                     stream
                         .write_all(b" :- <server> Message of the day - \r\n")
                         .await?;
 
                     for line in motd {
-                        stream.write_all(b":srv 372 ").await?;
+                        stream.write_all(b":").await?;
+                        stream.write_all(context.server_name.as_bytes()).await?;
+                        stream.write_all(b" 372 ").await?;
                         stream.write_all(nickname.as_bytes()).await?;
                         stream.write_all(b" :- ").await?;
                         stream.write_all(line).await?;
                         stream.write_all(b"\r\n").await?;
                     }
 
-                    stream.write_all(b":srv 376 ").await?;
+                    stream.write_all(b":").await?;
+                    stream.write_all(context.server_name.as_bytes()).await?;
+                    stream.write_all(b" 376 ").await?;
                     stream.write_all(nickname.as_bytes()).await?;
                     stream.write_all(b" :End of MOTD command\r\n").await?;
                 }
                 None => {
-                    stream.write_all(b":srv 422 ").await?;
+                    stream.write_all(b":").await?;
+                    stream.write_all(context.server_name.as_bytes()).await?;
+                    stream.write_all(b" 422 ").await?;
                     stream.write_all(nickname.as_bytes()).await?;
                     stream.write_all(b" :MOTD File is missing\r\n").await?;
                 }
@@ -287,19 +323,25 @@ impl Message {
                 n_clients,
                 n_other_servers,
             } => {
-                stream.write_all(b":srv 251 ").await?;
+                stream.write_all(b":").await?;
+                stream.write_all(context.server_name.as_bytes()).await?;
+                stream.write_all(b" 251 ").await?;
                 stream.write_all(nickname.as_bytes()).await?;
                 stream
                     .write_all(b" :There are N users and 0 invisible on 1 servers\r\n")
                     .await?;
 
-                stream.write_all(b":srv 252 ").await?;
+                stream.write_all(b":").await?;
+                stream.write_all(context.server_name.as_bytes()).await?;
+                stream.write_all(b" 252 ").await?;
                 stream.write_all(nickname.as_bytes()).await?;
                 stream.write_all(b" ").await?;
                 stream.write_all(n_operators.to_string().as_bytes()).await?;
                 stream.write_all(b" :operator(s) online\r\n").await?;
 
-                stream.write_all(b":srv 253 ").await?;
+                stream.write_all(b":").await?;
+                stream.write_all(context.server_name.as_bytes()).await?;
+                stream.write_all(b" 253 ").await?;
                 stream.write_all(nickname.as_bytes()).await?;
                 stream.write_all(b" ").await?;
                 stream
@@ -307,13 +349,17 @@ impl Message {
                     .await?;
                 stream.write_all(b" :unknown connection(s)\r\n").await?;
 
-                stream.write_all(b":srv 254 ").await?;
+                stream.write_all(b":").await?;
+                stream.write_all(context.server_name.as_bytes()).await?;
+                stream.write_all(b" 254 ").await?;
                 stream.write_all(nickname.as_bytes()).await?;
                 stream.write_all(b" ").await?;
                 stream.write_all(n_channels.to_string().as_bytes()).await?;
                 stream.write_all(b" :channels formed\r\n").await?;
 
-                stream.write_all(b":srv 255 ").await?;
+                stream.write_all(b":").await?;
+                stream.write_all(context.server_name.as_bytes()).await?;
+                stream.write_all(b" 255 ").await?;
                 stream.write_all(nickname.as_bytes()).await?;
                 stream.write_all(b" :I have ").await?;
                 stream.write_all(n_clients.to_string().as_bytes()).await?;
@@ -354,7 +400,9 @@ impl Message {
                 stream.write_all(b"\r\n").await?;
             }
             Message::Err(err) => {
-                stream.write_all(b":srv ").await?;
+                stream.write_all(b":").await?;
+                stream.write_all(context.server_name.as_bytes()).await?;
+                stream.write_all(b" ").await?;
                 err.write_to(stream).await?;
                 stream.write_all(b"\r\n").await?;
             }

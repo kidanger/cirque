@@ -120,6 +120,7 @@ enum LookupResult<'r> {
 }
 
 pub struct ServerState {
+    server_name: String,
     users: HashMap<UserID, RegisteredUser>,
     connecting_users: HashMap<UserID, RegisteringUser>,
     channels: HashMap<ChannelID, Channel>,
@@ -127,16 +128,21 @@ pub struct ServerState {
 }
 
 impl ServerState {
-    pub fn new<MP>(motd_provider: Arc<MP>) -> Self
+    pub fn new<MP>(server_name: &str, motd_provider: Arc<MP>) -> Self
     where
         MP: MOTDProvider + Send + Sync + 'static,
     {
         Self {
+            server_name: server_name.to_owned(),
             users: Default::default(),
             connecting_users: Default::default(),
             channels: Default::default(),
             motd_provider,
         }
+    }
+
+    pub fn server_name(&self) -> &str {
+        &self.server_name
     }
 
     pub(crate) fn shared(self) -> SharedServerState {

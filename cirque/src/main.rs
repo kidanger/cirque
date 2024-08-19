@@ -19,7 +19,7 @@ impl cirque::MOTDProvider for NoMOTDProvider {
 
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
-    let server_state = ServerState::new(Arc::new(NoMOTDProvider {}));
+    let server_state = ServerState::new("srv", Arc::new(NoMOTDProvider {}));
 
     // on SIGHUP, reload the config (motd) and cert files (even if their paths didn't change)
 
