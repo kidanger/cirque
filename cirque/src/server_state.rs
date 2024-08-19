@@ -195,7 +195,6 @@ impl ServerState {
         // send topic and names to the joiner
         let user = &self.users[&user_id];
 
-        dbg!(&channel.topic);
         if channel.topic.is_valid() {
             let message = server_to_client::Message::RplTopic {
                 nickname: user.nickname.to_owned(),
@@ -280,6 +279,7 @@ impl ServerState {
         user.send(&message);
 
         self.channels.retain(|_, channel| !channel.users.is_empty());
+        self.users.remove(&user_id);
     }
 
     pub(crate) fn user_disconnects_suddently(&mut self, user_id: UserID) {
@@ -306,6 +306,7 @@ impl ServerState {
         user.send(&message);
 
         self.channels.retain(|_, channel| !channel.users.is_empty());
+        self.users.remove(&user_id);
     }
 
     pub(crate) fn user_changes_nick(
