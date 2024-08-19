@@ -173,6 +173,9 @@ impl RegisteredState {
                 client_to_server::Message::Unknown(command) => {
                     server_state.user_sends_unknown_command(self.user_id, &command);
                 }
+                client_to_server::Message::List(list_channels, list_option) => {
+                    server_state.user_sends_list_info(self.user_id, list_channels, list_option);
+                }
                 _ => {
                     println!("illegal command from connected client");
                 }

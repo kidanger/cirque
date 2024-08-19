@@ -1,4 +1,29 @@
+use core::num;
+
 use crate::types::ChannelID;
+
+#[derive(Debug, Default, PartialEq)]
+pub(crate) enum ListFilter {
+    ChannelCreation,
+    TopicUpdate,
+    #[default]
+    UserNumber,
+    Unknown,
+}
+
+#[derive(Debug, Default, PartialEq)]
+pub(crate) enum ListOperation {
+    #[default]
+    Inf,
+    Sup,
+    Unknown,
+}
+#[derive(Debug, Default)]
+pub(crate) struct ListOption {
+    pub filter: ListFilter,
+    pub operation: ListOperation,
+    pub number: u64,
+}
 
 #[derive(Debug)]
 pub(crate) enum Message {
@@ -14,6 +39,7 @@ pub(crate) enum Message {
     PrivMsg(String, Vec<u8>),
     Notice(String, Vec<u8>),
     Part(Vec<ChannelID>, Option<Vec<u8>>),
+    List(Option<Vec<String>>, Option<Vec<ListOption>>),
     WhoWas(String, Option<usize>),
     #[allow(clippy::upper_case_acronyms)]
     MOTD(),
@@ -139,6 +165,83 @@ impl TryFrom<&cirque_parser::Message<'_>> for Message {
                     None
                 };
                 Message::WhoWas(target, count)
+            }
+            b"LIST" => {
+                let mut start_index = 0;
+                let mut channels: Option<Vec<String>> = None;
+                if let Some(first_parameter) = message.first_parameter() {
+                    channels = Some(
+                        first_parameter
+                            .split(|&c| c == b',')
+                            .flat_map(|s| String::from_utf8(s.to_owned()))
+                            .collect::<Vec<_>>(),
+                    );
+                    if channels.as_ref().is_some() && !channels.as_ref().unwrap().is_empty() {
+                        start_index = 1;
+                    }
+                };
+
+                let mut list_options: Vec<ListOption> = Vec::new();
+                for param_index in start_index..message.parameters().len() {
+                    let mut list_option: ListOption = ListOption {
+                        ..Default::default()
+                    };
+
+                    let mut index = param_index;
+                    let option = message.parameters().get(param_index);
+                    if let Some(option) = option {
+                        let option = option.first().unwrap();
+                        if option.is_ascii() {
+                            list_option.filter = match option {
+                                b'C' => ListFilter::ChannelCreation,
+                                b'U' => ListFilter::UserNumber,
+                                b'T' => ListFilter::TopicUpdate,
+                                _ => ListFilter::Unknown,
+                            };
+                            if list_option.filter == ListFilter::Unknown {
+                                return Err(MessageDecodingError::NotEnoughParameters {
+                                    command: str(message.command().to_vec())?,
+                                });
+                            } else {
+                                index += 1;
+                            }
+                        }
+                    }
+                    let operation = message.parameters().get(param_index + index);
+                    if let Some(operation) = operation {
+                        list_option.operation = match *operation {
+                            b"<" => ListOperation::Inf,
+                            b">" => ListOperation::Sup,
+                            _ => ListOperation::Unknown,
+                        };
+                        if list_option.operation == ListOperation::Unknown {
+                            return Err(MessageDecodingError::NotEnoughParameters {
+                                command: str(message.command().to_vec())?,
+                            });
+                        } else {
+                            index += 1;
+                        }
+                    }
+                    let number = message.parameters().get(param_index + index);
+                    if let Some(number) = number {
+                        let count = str(number.to_vec())?;
+                        let count = count.parse::<u64>().map_err(|_| {
+                            MessageDecodingError::CannotParseInteger {
+                                command: message.command().to_vec(),
+                            }
+                        })?;
+                        list_option.number = count;
+                    }
+                    list_options.push(list_option);
+                }
+                Message::List(
+                    channels,
+                    if list_options.is_empty() {
+                        None
+                    } else {
+                        Some(list_options)
+                    },
+                )
             }
             b"MOTD" => {
                 // don't parse the "server" argument, we don't support multi-server setups

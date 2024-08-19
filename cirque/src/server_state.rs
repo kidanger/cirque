@@ -1,12 +1,14 @@
 use std::collections::HashMap;
+use std::ops::Div;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use cirque_parser::Message;
 use thiserror::Error;
 use tokio::io::AsyncWriteExt;
 
-use crate::client_to_server::MessageDecodingError;
-use crate::server_to_client;
+use crate::client_to_server::{ListFilter, ListOperation, ListOption, MessageDecodingError};
+use crate::server_to_client::{self, ChannelInfo};
 use crate::transport;
 use crate::types::Channel;
 use crate::types::ChannelID;
@@ -593,6 +595,96 @@ impl ServerState {
             nickname: user.nickname.clone(),
             motd: self.motd_provider.motd(),
         };
+        user.send(&message);
+    }
+
+    fn filter_channel(&self, list_option: &ListOption, channel: &Channel) -> bool {
+        let current_time = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            .div(60);
+        match list_option.filter {
+            ListFilter::ChannelCreation => match list_option.operation {
+                ListOperation::Inf => false,
+                ListOperation::Sup => false,
+                ListOperation::Unknown => false,
+            },
+            ListFilter::TopicUpdate => match list_option.operation {
+                ListOperation::Inf => channel.topic.ts.div(60) - current_time < list_option.number,
+                ListOperation::Sup => channel.topic.ts.div(60) - current_time > list_option.number,
+                ListOperation::Unknown => false,
+            },
+            ListFilter::UserNumber => match list_option.operation {
+                ListOperation::Inf => channel.users.len() > list_option.number.try_into().unwrap(),
+                ListOperation::Sup => channel.users.len() < list_option.number.try_into().unwrap(),
+                ListOperation::Unknown => false,
+            },
+            ListFilter::Unknown => false,
+        }
+    }
+
+    pub(crate) fn user_sends_list_info(
+        &self,
+        user_id: UserID,
+        list_channels: Option<Vec<String>>,
+        list_options: Option<Vec<ListOption>>,
+    ) {
+        let mut channel_info_list: Vec<ChannelInfo> = Vec::new();
+
+        if let Some(list_channels) = list_channels {
+            list_channels
+                .iter()
+                .filter(|channel_name| {
+                    let mut is_valid: bool = true;
+                    if let Some(ref options) = list_options {
+                        if let Some(channel) = self.channels.get(*channel_name) {
+                            for option in options {
+                                let ok = self.filter_channel(option, channel);
+                                if !ok || !is_valid {
+                                    is_valid = false;
+                                }
+                            }
+                        }
+                    }
+                    is_valid
+                })
+                .for_each(|channel_name| {
+                    if let Some(channel) = self.channels.get(channel_name) {
+                        channel_info_list.push(ChannelInfo {
+                            count: channel.users.len(),
+                            name: channel_name.clone(),
+                            topic: channel.topic.content.clone(),
+                        });
+                    }
+                })
+        } else {
+            self.channels
+                .iter()
+                .filter(|&(_channel_name, channel)| {
+                    let mut is_valid: bool = true;
+                    if let Some(ref options) = list_options {
+                        for option in options {
+                            let ok = self.filter_channel(option, channel);
+                            if !ok || !is_valid {
+                                is_valid = false;
+                            }
+                        }
+                    }
+                    is_valid
+                })
+                .for_each(|(channel_name, channel)| {
+                    channel_info_list.push(ChannelInfo {
+                        count: channel.users.len(),
+                        name: channel_name.clone(),
+                        topic: channel.topic.content.clone(),
+                    });
+                });
+        }
+        let message = server_to_client::Message::List {
+            infos: channel_info_list,
+        };
+        let user = &self.users[&user_id];
         user.send(&message);
     }
 }

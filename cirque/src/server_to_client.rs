@@ -7,6 +7,13 @@ use crate::{
 };
 
 #[derive(Debug, Clone)]
+pub(crate) struct ChannelInfo {
+    pub name: String,
+    pub count: usize,
+    pub topic: Vec<u8>,
+}
+
+#[derive(Debug, Clone)]
 pub enum Message {
     Welcome {
         nickname: String,
@@ -71,6 +78,9 @@ pub enum Message {
         user_fullspec: String,
         channel: String,
         reason: Option<Vec<u8>>,
+    },
+    List {
+        infos: Vec<ChannelInfo>,
     },
     Quit {
         user_fullspec: String,
@@ -381,6 +391,22 @@ impl Message {
                     stream.write_all(reason).await?;
                 }
                 stream.write_all(b"\r\n").await?;
+            }
+            Message::List { infos } => {
+                stream.write_all(b":srv 321 ").await?;
+                stream.write_all(b" Channel :Users  Name\r\n").await?;
+
+                for info in infos {
+                    stream.write_all(b":srv 322 ").await?;
+                    stream.write_all(info.name.as_bytes()).await?;
+                    stream.write_all(b" ").await?;
+                    stream.write_all(info.count.to_string().as_bytes()).await?;
+                    stream.write_all(b" :").await?;
+                    stream.write_all(&info.topic).await?;
+                    stream.write_all(b"\r\n").await?;
+                }
+
+                stream.write_all(b":srv 323 :End of /LIST\r\n").await?;
             }
             Message::Quit {
                 user_fullspec,
