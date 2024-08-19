@@ -52,7 +52,13 @@ impl RegisteringState {
                 }
                 client_to_server::Message::User(username) => user.username = Some(username),
                 client_to_server::Message::Quit(_reason) => {
-                    todo!();
+                    return Ok(SessionState::Disconnected);
+                }
+                client_to_server::Message::Ping(token) => {
+                    let message = server_to_client::Message::Pong {
+                        token: token.to_vec(),
+                    };
+                    user.send(&message);
                 }
                 client_to_server::Message::Unknown(command) => {
                     let message =
@@ -137,7 +143,7 @@ impl RegisteredState {
                     server_state.user_asks_channel_mode(self.user_id, &channel);
                 }
                 client_to_server::Message::Ping(token) => {
-                    server_state.user_pings(self.user_id, token.as_deref());
+                    server_state.user_pings(self.user_id, &token);
                 }
                 client_to_server::Message::Pong(_) => {}
                 client_to_server::Message::Quit(reason) => {

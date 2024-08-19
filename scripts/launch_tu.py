@@ -24,7 +24,6 @@ if __name__ == "__main__":
         "CHANNEL_JOIN",
         "CHANNEL_PRIVMSG_NOTICE",
         "CHANNEL_PART",
-        "PING_PONG",
         "QUIT_CHANNEL",
         "NICK_CHANNEL",
         "CONNECTION_REGISTRATION",
@@ -34,6 +33,8 @@ if __name__ == "__main__":
         # disabled:
         # "ERR_UNKNOWN",
         #   because WHOWAS is not handled or something like that
+        # "PING_PONG",
+        #   because it allows optional tokens
     ]:
         subprocess.run(
             [

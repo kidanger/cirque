@@ -37,7 +37,7 @@ pub enum Message {
         topic: Topic,
     },
     Pong {
-        token: Option<Vec<u8>>,
+        token: Vec<u8>,
     },
     ChannelMode {
         nickname: String,
@@ -234,10 +234,8 @@ impl Message {
             Message::Pong { token } => {
                 stream.write_all(b"PONG ").await?;
                 stream.write_all(context.server_name.as_bytes()).await?;
-                if let Some(token) = token {
-                    stream.write_all(b" :").await?;
-                    stream.write_all(token).await?;
-                }
+                stream.write_all(b" :").await?;
+                stream.write_all(token).await?;
                 stream.write_all(b"\r\n").await?;
             }
             Message::ChannelMode {

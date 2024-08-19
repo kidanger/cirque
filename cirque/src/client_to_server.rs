@@ -5,8 +5,8 @@ pub(crate) enum Message {
     Cap,
     Nick(String),
     User(String),
-    Ping(Option<Vec<u8>>),
-    Pong(Option<Vec<u8>>),
+    Ping(Vec<u8>),
+    Pong(Vec<u8>),
     Join(Vec<ChannelID>),
     GetTopic(ChannelID),
     SetTopic(ChannelID, Vec<u8>),
@@ -64,7 +64,8 @@ impl TryFrom<&cirque_parser::Message<'_>> for Message {
                 }
                 Message::User(user)
             }
-            b"PONG" => Message::Pong(message.first_parameter_as_vec()),
+            b"PING" => Message::Ping(opt(message.first_parameter_as_vec())?),
+            b"PONG" => Message::Pong(opt(message.first_parameter_as_vec())?),
             b"JOIN" => {
                 let channels = message
                     .first_parameter()
@@ -86,7 +87,6 @@ impl TryFrom<&cirque_parser::Message<'_>> for Message {
                     None => Message::GetTopic(target),
                 }
             }
-            b"PING" => Message::Ping(message.first_parameter_as_vec()),
             b"MODE" => Message::AskModeChannel(str(opt(message.first_parameter_as_vec())?)?),
             b"PRIVMSG" => {
                 let target =
