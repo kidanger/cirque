@@ -1,5 +1,7 @@
 use std::collections::HashSet;
 
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
+
 use crate::server_to_client;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -14,14 +16,14 @@ impl UserID {
 pub type ChannelID = String;
 
 #[derive(Debug)]
-pub struct User {
-    pub(crate) id: UserID,
+pub struct RegisteredUser {
+    pub(crate) user_id: UserID,
     pub(crate) nickname: String,
     pub(crate) username: String,
-    pub(crate) mailbox: tokio::sync::mpsc::UnboundedSender<server_to_client::Message>,
+    mailbox: tokio::sync::mpsc::UnboundedSender<server_to_client::Message>,
 }
 
-impl User {
+impl RegisteredUser {
     pub(crate) fn send(&self, message: &server_to_client::Message) {
         let _ = self.mailbox.send(message.clone());
     }
@@ -32,10 +34,41 @@ impl User {
 }
 
 #[derive(Debug)]
-pub(crate) struct ConnectingUser {
-    cap: Option<Vec<String>>,
-    nick: Option<String>,
-    user: Option<String>,
+pub(crate) struct RegisteringUser {
+    pub(crate) user_id: UserID,
+    pub(crate) nickname: Option<String>,
+    pub(crate) username: Option<String>,
+    mailbox: UnboundedSender<server_to_client::Message>,
+}
+
+impl RegisteringUser {
+    pub(crate) fn new() -> (Self, UnboundedReceiver<server_to_client::Message>) {
+        let user_id = UserID::generate();
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        let user = Self {
+            user_id,
+            nickname: None,
+            username: None,
+            mailbox: tx,
+        };
+        (user, rx)
+    }
+
+    pub(crate) fn is_ready(&self) -> bool {
+        self.nickname.is_some() && self.username.is_some()
+    }
+}
+
+impl From<RegisteringUser> for RegisteredUser {
+    fn from(value: RegisteringUser) -> Self {
+        assert!(value.is_ready());
+        Self {
+            user_id: value.user_id,
+            nickname: value.nickname.unwrap(),
+            username: value.username.unwrap(),
+            mailbox: value.mailbox,
+        }
+    }
 }
 
 #[derive(Debug, Default, Clone)]

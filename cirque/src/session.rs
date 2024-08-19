@@ -2,7 +2,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::server_state::{ServerStateError, SharedServerState};
 use crate::transport::AnyStream;
-use crate::types::{User, UserID};
+use crate::types::{RegisteredUser, RegisteringUser, UserID};
 use crate::{client_to_server, server_to_client, ServerState};
 use cirque_parser::{LendingIterator, StreamParser};
 
@@ -24,9 +24,8 @@ impl ConnectingSession {
     pub(crate) async fn connect_user(
         mut self,
         server_state: &SharedServerState,
-    ) -> Result<(Session, User), anyhow::Error> {
-        let mut chosen_nick = None;
-        let mut chosen_user = None;
+    ) -> Result<(Session, RegisteredUser), anyhow::Error> {
+        let (mut user, rx) = RegisteringUser::new();
 
         'outer: loop {
             let received = self.stream.read_buf(&mut self.stream_parser).await?;
@@ -41,7 +40,7 @@ impl ConnectingSession {
                 let message = match client_to_server::Message::try_from(&message) {
                     Ok(message) => message,
                     Err(err) => {
-                        let client = chosen_nick.clone().unwrap_or("*".to_string());
+                        let client = user.nickname.clone().unwrap_or("*".to_string());
                         if let Some(err) =
                             ServerStateError::from_decoding_error_with_client(err, client)
                         {
@@ -62,7 +61,7 @@ impl ConnectingSession {
                         let is_nickname_valid =
                             server_state.lock().unwrap().check_nickname(&nick, None);
                         match is_nickname_valid {
-                            Ok(()) => chosen_nick = Some(nick),
+                            Ok(()) => user.nickname = Some(nick),
                             Err(err) => {
                                 self.stream.write_all(b":srv ").await?;
                                 err.write_to(&mut self.stream).await?;
@@ -70,7 +69,7 @@ impl ConnectingSession {
                             }
                         }
                     }
-                    client_to_server::Message::User(user) => chosen_user = Some(user),
+                    client_to_server::Message::User(username) => user.username = Some(username),
                     client_to_server::Message::Quit(reason) => {
                         todo!();
                     }
@@ -86,7 +85,7 @@ impl ConnectingSession {
                         // some valid commands should return ErrNotRegistered when not registered
                         let msg = server_to_client::Message::Err(
                             crate::server_state::ServerStateError::NotRegistered {
-                                client: chosen_nick.clone().unwrap_or("*".to_string()),
+                                client: user.nickname.clone().unwrap_or("*".to_string()),
                             },
                         );
                         msg.write_to(&mut self.stream).await?;
@@ -97,26 +96,17 @@ impl ConnectingSession {
                     }
                 };
 
-                if chosen_user.is_some() && chosen_nick.is_some() {
+                if user.is_ready() {
                     break 'outer;
                 }
             }
         }
 
-        let user_id = UserID::generate();
-        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-
-        let user = User {
-            id: user_id,
-            username: chosen_user.unwrap(),
-            nickname: chosen_nick.unwrap(),
-            mailbox: tx,
-        };
-
+        let user = RegisteredUser::from(user);
         let session = Session {
             stream: self.stream,
             stream_parser: self.stream_parser,
-            user_id,
+            user_id: user.user_id,
             mailbox: rx,
         };
 

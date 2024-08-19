@@ -10,8 +10,8 @@ use crate::server_to_client;
 use crate::transport;
 use crate::types::Channel;
 use crate::types::ChannelID;
-use crate::types::ConnectingUser;
-use crate::types::User;
+use crate::types::RegisteredUser;
+use crate::types::RegisteringUser;
 use crate::types::UserID;
 
 pub type SharedServerState = Arc<Mutex<ServerState>>;
@@ -116,12 +116,12 @@ impl ServerStateError {
 
 enum LookupResult<'r> {
     Channel(&'r Channel),
-    User(&'r User),
+    RegisteredUser(&'r RegisteredUser),
 }
 
 pub struct ServerState {
-    users: HashMap<UserID, User>,
-    connecting_users: Vec<ConnectingUser>,
+    users: HashMap<UserID, RegisteredUser>,
+    connecting_users: HashMap<UserID, RegisteringUser>,
     channels: HashMap<ChannelID, Channel>,
     motd_provider: Arc<dyn MOTDProvider + Send + Sync>,
 }
@@ -155,7 +155,7 @@ impl ServerState {
 
         let mut nick = "*";
         if let Some(user_id) = user_id {
-            let user: &User = &self.users[&user_id];
+            let user: &RegisteredUser = &self.users[&user_id];
             nick = &user.nickname;
         }
 
@@ -187,7 +187,7 @@ impl ServerState {
             user_fullspec: joiner_spec,
         };
         for user_id in &channel.users {
-            let user: &User = &self.users[user_id];
+            let user: &RegisteredUser = &self.users[user_id];
             nicknames.push(user.nickname.clone());
             user.send(&message);
         }
@@ -340,7 +340,7 @@ impl ServerState {
         if let Some(channel) = self.channels.get(target) {
             Some(LookupResult::Channel(channel))
         } else if let Some(user) = self.users.values().find(|&u| u.nickname == target) {
-            Some(LookupResult::User(user))
+            Some(LookupResult::RegisteredUser(user))
         } else {
             None
         }
@@ -391,7 +391,7 @@ impl ServerState {
                     .flat_map(|u| self.users.get(u))
                     .for_each(|u| u.send(&message));
             }
-            LookupResult::User(target_user) => {
+            LookupResult::RegisteredUser(target_user) => {
                 target_user.send(&message);
             }
         }
@@ -430,7 +430,7 @@ impl ServerState {
                     .flat_map(|u| self.users.get(u))
                     .for_each(|u| u.send(&message));
             }
-            LookupResult::User(target_user) => {
+            LookupResult::RegisteredUser(target_user) => {
                 target_user.send(&message);
             }
         }
@@ -523,7 +523,7 @@ impl ServerState {
         Ok(())
     }
 
-    pub(crate) fn user_connects(&mut self, user: User) {
+    pub(crate) fn user_connects(&mut self, user: RegisteredUser) {
         let message = server_to_client::Message::Welcome {
             nickname: user.nickname.clone(),
             user_fullspec: user.fullspec(),
@@ -546,7 +546,7 @@ impl ServerState {
         };
         user.send(&message);
 
-        self.users.insert(user.id, user);
+        self.users.insert(user.user_id, user);
     }
 
     pub(crate) fn user_pings(&mut self, user_id: UserID, token: Option<&[u8]>) {
