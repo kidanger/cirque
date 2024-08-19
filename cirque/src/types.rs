@@ -54,6 +54,14 @@ impl RegisteringUser {
         (user, rx)
     }
 
+    pub(crate) fn send(&self, message: &server_to_client::Message) {
+        let _ = self.mailbox.send(message.clone());
+    }
+
+    pub(crate) fn maybe_nickname(&self) -> String {
+        self.nickname.clone().unwrap_or("*".to_string())
+    }
+
     pub(crate) fn is_ready(&self) -> bool {
         self.nickname.is_some() && self.username.is_some()
     }

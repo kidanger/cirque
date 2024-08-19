@@ -1,5 +1,5 @@
 use crate::server_state::ServerState;
-use crate::session::ConnectingSession;
+use crate::session::Session;
 use crate::transport::Listener;
 
 pub async fn run_server(listener: impl Listener, server_state: ServerState) -> anyhow::Result<()> {
@@ -11,9 +11,7 @@ pub async fn run_server(listener: impl Listener, server_state: ServerState) -> a
 
         let server_state = server_state.clone();
         let fut = async move {
-            let session = ConnectingSession::new(stream);
-            let session = session.run(&server_state).await?;
-            session.run(server_state).await?;
+            Session::init(stream).run(server_state).await?;
             dbg!("client dropped");
             anyhow::Ok(())
         };

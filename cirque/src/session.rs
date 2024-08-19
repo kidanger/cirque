@@ -6,30 +6,98 @@ use crate::types::{RegisteredUser, RegisteringUser, UserID};
 use crate::{client_to_server, server_to_client, ServerState};
 use cirque_parser::{LendingIterator, StreamParser};
 
-struct SessionStateRegistering {
+struct RegisteringState {
     user: RegisteringUser,
 }
 
-impl SessionStateRegistering {
+impl RegisteringState {
     fn process_buffer(
-        &self,
+        mut self,
         server_state: &mut ServerState,
         stream_parser: &mut StreamParser,
-    ) -> anyhow::Result<bool> {
-        todo!()
+    ) -> anyhow::Result<SessionState> {
+        let user = &mut self.user;
+        let mut iter = stream_parser.consume_iter();
+        while let Some(message) = iter.next() {
+            let message = match message {
+                Ok(m) => m,
+                Err(e) => anyhow::bail!(e.to_string()),
+            };
+            let message = match client_to_server::Message::try_from(&message) {
+                Ok(message) => message,
+                Err(err) => {
+                    let client = user.maybe_nickname();
+                    if let Some(err) =
+                        ServerStateError::from_decoding_error_with_client(err, client)
+                    {
+                        user.send(&server_to_client::Message::Err(err));
+                    }
+                    continue;
+                }
+            };
+            dbg!(&message);
+
+            match message {
+                client_to_server::Message::Cap => {
+                    // ignore for now
+                }
+                client_to_server::Message::Nick(nick) => {
+                    let is_nickname_valid = server_state.check_nickname(&nick, None);
+                    match is_nickname_valid {
+                        Ok(()) => user.nickname = Some(nick),
+                        Err(err) => {
+                            user.send(&server_to_client::Message::Err(err));
+                        }
+                    }
+                }
+                client_to_server::Message::User(username) => user.username = Some(username),
+                client_to_server::Message::Quit(_reason) => {
+                    todo!();
+                }
+                client_to_server::Message::Unknown(command) => {
+                    let message =
+                        server_to_client::Message::Err(ServerStateError::UnknownCommand {
+                            client: user.maybe_nickname(),
+                            command: command.to_owned(),
+                        });
+                    user.send(&message);
+                }
+                client_to_server::Message::PrivMsg(_, _) => {
+                    // some valid commands should return ErrNotRegistered when not registered
+                    let message = server_to_client::Message::Err(ServerStateError::NotRegistered {
+                        client: user.maybe_nickname(),
+                    });
+                    user.send(&message);
+                }
+                _ => {
+                    // valid commands should not return replies
+                }
+            };
+
+            if user.is_ready() {
+                let user = RegisteredUser::from(self.user);
+                let state = RegisteredState {
+                    user_id: user.user_id,
+                };
+                server_state.user_connects(user);
+                return Ok(SessionState::Registered(state));
+            }
+        }
+
+        Ok(SessionState::Registering(self))
     }
 }
 
-struct SessionStateRegistered {
+struct RegisteredState {
     user_id: UserID,
 }
 
-impl SessionStateRegistered {
+impl RegisteredState {
     fn process_buffer(
-        &self,
+        self,
         server_state: &mut ServerState,
         stream_parser: &mut StreamParser,
-    ) -> Result<bool, anyhow::Error> {
+    ) -> Result<SessionState, anyhow::Error> {
         let mut iter = stream_parser.consume_iter();
         while let Some(message) = iter.next() {
             let message = match message {
@@ -74,7 +142,7 @@ impl SessionStateRegistered {
                 client_to_server::Message::Pong(_) => {}
                 client_to_server::Message::Quit(reason) => {
                     server_state.user_disconnects_voluntarily(self.user_id, reason.as_deref());
-                    return Ok(true);
+                    return Ok(SessionState::Disconnected {});
                 }
                 client_to_server::Message::PrivMsg(target, content) => {
                     server_state.user_messages_target(self.user_id, &target, &content);
@@ -104,21 +172,31 @@ impl SessionStateRegistered {
                 }
             };
         }
-        Ok(false)
+
+        Ok(SessionState::Registered(self))
     }
 }
 
 enum SessionState {
-    Registering(SessionStateRegistering),
-    Registered(SessionStateRegistered),
+    Registering(RegisteringState),
+    Registered(RegisteredState),
+    Disconnected,
 }
 
 impl SessionState {
+    fn client_disconnected_voluntarily(&self) -> bool {
+        match self {
+            SessionState::Registering(_) => false,
+            SessionState::Registered(_) => false,
+            SessionState::Disconnected => true,
+        }
+    }
+
     fn process_buffer(
-        &mut self,
+        self,
         server_state: &mut ServerState,
         stream_parser: &mut StreamParser,
-    ) -> anyhow::Result<bool> {
+    ) -> anyhow::Result<SessionState> {
         match self {
             SessionState::Registering(session_state) => {
                 session_state.process_buffer(server_state, stream_parser)
@@ -126,181 +204,58 @@ impl SessionState {
             SessionState::Registered(session_state) => {
                 session_state.process_buffer(server_state, stream_parser)
             }
+            SessionState::Disconnected => Ok(self),
         }
-    }
-}
-
-pub(crate) struct ConnectingSession {
-    stream: AnyStream,
-    stream_parser: StreamParser,
-}
-
-impl ConnectingSession {
-    pub(crate) fn new(stream: AnyStream) -> Self {
-        Self {
-            stream,
-            stream_parser: Default::default(),
-        }
-    }
-}
-
-impl ConnectingSession {
-    pub(crate) async fn run(
-        mut self,
-        server_state: &SharedServerState,
-    ) -> Result<Session, anyhow::Error> {
-        let (mut user, rx) = RegisteringUser::new();
-
-        'outer: loop {
-            let received = self.stream.read_buf(&mut self.stream_parser).await?;
-            anyhow::ensure!(received > 0, "stream ended");
-
-            let mut iter = self.stream_parser.consume_iter();
-            while let Some(message) = iter.next() {
-                let message = match message {
-                    Ok(m) => m,
-                    Err(e) => anyhow::bail!(e.to_string()),
-                };
-                let message = match client_to_server::Message::try_from(&message) {
-                    Ok(message) => message,
-                    Err(err) => {
-                        let client = user.nickname.clone().unwrap_or("*".to_string());
-                        if let Some(err) =
-                            ServerStateError::from_decoding_error_with_client(err, client)
-                        {
-                            server_to_client::Message::Err(err)
-                                .write_to(&mut self.stream)
-                                .await?;
-                        }
-                        continue;
-                    }
-                };
-                dbg!(&message);
-
-                match message {
-                    client_to_server::Message::Cap => {
-                        // ignore for now
-                    }
-                    client_to_server::Message::Nick(nick) => {
-                        let is_nickname_valid =
-                            server_state.lock().unwrap().check_nickname(&nick, None);
-                        match is_nickname_valid {
-                            Ok(()) => user.nickname = Some(nick),
-                            Err(err) => {
-                                self.stream.write_all(b":srv ").await?;
-                                err.write_to(&mut self.stream).await?;
-                                self.stream.write_all(b"\r\n").await?;
-                            }
-                        }
-                    }
-                    client_to_server::Message::User(username) => user.username = Some(username),
-                    client_to_server::Message::Quit(reason) => {
-                        todo!();
-                    }
-                    client_to_server::Message::Unknown(command) => {
-                        let message =
-                            server_to_client::Message::Err(ServerStateError::UnknownCommand {
-                                client: "*".to_string(),
-                                command: command.to_owned(),
-                            });
-                        message.write_to(&mut self.stream).await?;
-                    }
-                    client_to_server::Message::PrivMsg(_, _) => {
-                        // some valid commands should return ErrNotRegistered when not registered
-                        let msg = server_to_client::Message::Err(
-                            crate::server_state::ServerStateError::NotRegistered {
-                                client: user.nickname.clone().unwrap_or("*".to_string()),
-                            },
-                        );
-                        msg.write_to(&mut self.stream).await?;
-                        //anyhow::bail!("illegal command during connection");
-                    }
-                    _ => {
-                        // valid commands should not return replies
-                    }
-                };
-
-                if user.is_ready() {
-                    break 'outer;
-                }
-            }
-        }
-
-        let user = RegisteredUser::from(user);
-        let session = Session {
-            stream: self.stream,
-            stream_parser: self.stream_parser,
-            user_id: user.user_id,
-            mailbox: rx,
-            state: SessionState::Registered(SessionStateRegistered {
-                user_id: user.user_id,
-            }),
-        };
-
-        server_state.lock().unwrap().user_connects(user);
-
-        Ok(session)
     }
 }
 
 pub(crate) struct Session {
     stream: AnyStream,
-    stream_parser: StreamParser,
-    user_id: UserID,
-
-    // move this inner to run(), returned by process_buffer
-    state: SessionState,
-
-    mailbox: tokio::sync::mpsc::UnboundedReceiver<server_to_client::Message>,
 }
 
 impl Session {
     pub(crate) fn init(stream: AnyStream) -> Self {
-        let (user, rx) = RegisteringUser::new();
-        Self {
-            stream,
-            stream_parser: StreamParser::default(),
-            user_id: user.user_id,
-            state: SessionState::Registering(SessionStateRegistering { user }),
-            mailbox: rx,
-        }
+        Self { stream }
     }
 
     pub(crate) async fn run(mut self, server_state: SharedServerState) -> anyhow::Result<()> {
-        // first, process potential messages in the stream parser, leftovers from the ConnectingSession
-        let mut client_quit = self
-            .state
-            .process_buffer(&mut server_state.lock().unwrap(), &mut self.stream_parser)?;
+        let mut stream_parser = StreamParser::default();
 
-        while !client_quit {
+        let (user, mut rx) = RegisteringUser::new();
+        let user_id = user.user_id;
+        let mut state = SessionState::Registering(RegisteringState { user });
+
+        while !state.client_disconnected_voluntarily() {
             tokio::select! {
-                result = self.stream.read_buf(&mut self.stream_parser) => {
+                result = self.stream.read_buf(&mut stream_parser) => {
                     let received = result?;
 
                     if received == 0 {
                         break;
                     }
 
-                    client_quit = self.state.process_buffer(&mut server_state.lock().unwrap(), &mut self.stream_parser)?;
+                    state = state.process_buffer(&mut server_state.lock().unwrap(), &mut stream_parser)?;
                 },
-                Some(msg) = self.mailbox.recv() => {
-                    msg.write_to(&mut self.stream).await?;
+                Some(message) = rx.recv() => {
+                    message.write_to(&mut self.stream).await?;
+                    self.stream.flush().await?;
                 }
             }
         }
 
-        if client_quit {
+        if state.client_disconnected_voluntarily() {
             // the client sent a QUIT, handle the disconnection gracefully
             // TODO: maybe tolerate a timeout to send the last messages and then force quit
-            while let Ok(msg) = self.mailbox.try_recv() {
+            while let Ok(msg) = rx.try_recv() {
                 msg.write_to(&mut self.stream).await?;
             }
+            self.stream.flush().await?;
         } else {
             // the connection was closed without notification
             server_state
                 .lock()
                 .unwrap()
-                .user_disconnects_suddently(self.user_id);
+                .user_disconnects_suddently(user_id);
         }
 
         Ok(())
