@@ -393,11 +393,15 @@ impl Message {
                 stream.write_all(b"\r\n").await?;
             }
             Message::List { infos } => {
-                stream.write_all(b":srv 321 ").await?;
+                stream.write_all(b":").await?;
+                stream.write_all(context.server_name.as_bytes()).await?;
+                stream.write_all(b" 321 ").await?;
                 stream.write_all(b" Channel :Users  Name\r\n").await?;
 
                 for info in infos {
-                    stream.write_all(b":srv 322 ").await?;
+                    stream.write_all(b":").await?;
+                    stream.write_all(context.server_name.as_bytes()).await?;
+                    stream.write_all(b" 322 ").await?;
                     stream.write_all(info.name.as_bytes()).await?;
                     stream.write_all(b" ").await?;
                     stream.write_all(info.count.to_string().as_bytes()).await?;
@@ -405,8 +409,10 @@ impl Message {
                     stream.write_all(&info.topic).await?;
                     stream.write_all(b"\r\n").await?;
                 }
-
-                stream.write_all(b":srv 323 :End of /LIST\r\n").await?;
+                stream.write_all(b":").await?;
+                stream.write_all(context.server_name.as_bytes()).await?;
+                stream.write_all(b" 323 ").await?;
+                stream.write_all(b":End of /LIST\r\n").await?;
             }
             Message::Quit {
                 user_fullspec,
