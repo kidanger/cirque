@@ -143,9 +143,12 @@ impl Message {
                     stream.write_all(b" = ").await?;
                     stream.write_all(channel.as_bytes()).await?;
                     stream.write_all(b" :").await?;
-                    for nick in nicknames {
+                    let mut iter = nicknames.iter().peekable();
+                    while let Some(nick) = iter.next() {
                         stream.write_all(nick.as_bytes()).await?;
-                        stream.write_all(b" ").await?;
+                        if iter.peek().is_some() {
+                            stream.write_all(b" ").await?;
+                        }
                     }
                     stream.write_all(b"\r\n").await?;
                     stream.write_all(b":srv 366 ").await?;
