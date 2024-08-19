@@ -204,7 +204,7 @@ impl Message {
                 stream.write_all(b"\r\n").await?;
             }
             Message::Pong { token } => {
-                stream.write_all(b"PONG :srv").await?;
+                stream.write_all(b"PONG srv").await?;
                 if let Some(token) = token {
                     stream.write_all(b" :").await?;
                     stream.write_all(token).await?;
