@@ -43,6 +43,12 @@ pub enum ServerStateError {
     NoNicknameGiven { client: String },
     #[error("433 {client} {nickname} :Nickname is already in use")]
     NicknameInUse { client: String, nickname: String },
+    #[error("441 {client} {nickname} {channel} :They aren't on that channel")]
+    UserNotInChannel {
+        client: String,
+        nickname: String,
+        channel: String,
+    },
     #[error("442 {client} {channel} :You're not on that channel")]
     NotOnChannel { client: String, channel: String },
     #[error("451 {client} :You have not registered")]
@@ -556,16 +562,24 @@ impl ServerState {
 
         channel.ensure_user_can_set_channel_mode(user, channel_name)?;
 
-        let lookup_user = |nickname: &str| -> Option<UserID> {
-            let user_id = self
-                .users
-                .values()
-                .find(|&u| u.nickname == nickname)?
-                .user_id;
+        let lookup_user = |nickname: &str| -> Result<UserID, ServerStateError> {
+            let Some(target_user) = self.users.values().find(|&u| u.nickname == nickname) else {
+                return Err(ServerStateError::NoSuchNick {
+                    client: user.nickname.clone(),
+                    target: nickname.to_string(),
+                });
+            };
+
+            let user_id = target_user.user_id;
             if !channel.users.contains_key(&user_id) {
-                return None;
+                return Err(ServerStateError::UserNotInChannel {
+                    client: user.nickname.clone(),
+                    nickname: nickname.to_string(),
+                    channel: channel_name.to_string(),
+                });
             }
-            Some(user_id)
+
+            Ok(user_id)
         };
 
         match modechar {
@@ -575,7 +589,7 @@ impl ServerState {
             "-t" => channel.mode = channel.mode.without_topic_protected(),
             "+o" | "+v" => {
                 let target = param.unwrap();
-                let target_user_id = lookup_user(target).unwrap();
+                let target_user_id = lookup_user(target)?;
                 let new_user_mode = match modechar {
                     "+o" => ChannelUserMode::new_op(),
                     "+v" => ChannelUserMode::new_voice(),
@@ -600,8 +614,7 @@ impl ServerState {
             }
             "-o" | "-v" => {
                 let target = param.unwrap();
-                let param = param.unwrap();
-                let user_id = lookup_user(param).unwrap();
+                let user_id = lookup_user(target)?;
                 if channel
                     .users
                     .insert(user_id, ChannelUserMode::default())
