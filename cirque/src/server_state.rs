@@ -185,13 +185,7 @@ impl ServerState {
         channel_name: &str,
     ) -> Result<(), ServerStateError> {
         let user = &self.users[&user_id];
-
-        if channel_name.is_empty() || !channel_name.starts_with('#') {
-            return Err(ServerStateError::BadChanMask {
-                client: user.nickname.to_string(),
-                channel: channel_name.to_string(),
-            });
-        }
+        validate_channel_name(user, channel_name)?;
 
         let channel = self.channels.entry(channel_name.to_owned()).or_default();
 
@@ -233,6 +227,37 @@ impl ServerState {
         Ok(())
     }
 
+    pub(crate) fn user_names_channel(
+        &mut self,
+        user_id: UserID,
+        channel_name: &str,
+    ) -> Result<(), ServerStateError> {
+        let user = &self.users[&user_id];
+        validate_channel_name(user, channel_name)?;
+
+        let Some(channel) = self.channels.get_mut(channel_name) else {
+            return Err(ServerStateError::NoSuchChannel {
+                client: user.nickname.clone(),
+                channel: channel_name.to_string(),
+            });
+        };
+
+        let mut nicknames = vec![];
+
+        for user_id in &channel.users {
+            let user: &RegisteredUser = &self.users[user_id];
+            nicknames.push(user.nickname.clone());
+        }
+
+        let message = server_to_client::Message::Names {
+            nickname: user.nickname.clone(),
+            names: vec![(channel_name.to_owned(), nicknames)],
+        };
+        user.send(&message);
+
+        Ok(())
+    }
+
     pub(crate) fn user_leaves_channel(
         &mut self,
         user_id: UserID,
@@ -240,6 +265,7 @@ impl ServerState {
         reason: &Option<Vec<u8>>,
     ) -> Result<(), ServerStateError> {
         let user = &self.users[&user_id];
+        validate_channel_name(user, channel_name)?;
 
         let Some(channel) = self.channels.get_mut(channel_name) else {
             return Err(ServerStateError::NoSuchChannel {
@@ -705,4 +731,17 @@ impl ServerState {
 
 pub trait MOTDProvider {
     fn motd(&self) -> Option<Vec<Vec<u8>>>;
+}
+
+fn validate_channel_name(
+    user: &RegisteredUser,
+    channel_name: &str,
+) -> Result<(), ServerStateError> {
+    if channel_name.is_empty() || !channel_name.starts_with('#') {
+        return Err(ServerStateError::BadChanMask {
+            client: user.nickname.to_string(),
+            channel: channel_name.to_string(),
+        });
+    }
+    Ok(())
 }

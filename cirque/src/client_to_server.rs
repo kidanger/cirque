@@ -33,6 +33,7 @@ pub(crate) enum Message {
     Ping(Vec<u8>),
     Pong(Vec<u8>),
     Join(Vec<ChannelID>),
+    Names(Vec<ChannelID>),
     GetTopic(ChannelID),
     SetTopic(ChannelID, Vec<u8>),
     AskModeChannel(ChannelID),
@@ -102,6 +103,17 @@ impl TryFrom<&cirque_parser::Message<'_>> for Message {
                     .flat_map(|s| str(s.to_owned()))
                     .collect::<Vec<_>>();
                 Message::Join(channels)
+            }
+            b"NAMES" => {
+                let channels = message
+                    .first_parameter()
+                    .ok_or(MessageDecodingError::NotEnoughParameters {
+                        command: str(message.command().to_vec())?,
+                    })?
+                    .split(|&c| c == b',')
+                    .flat_map(|s| str(s.to_owned()))
+                    .collect::<Vec<_>>();
+                Message::Names(channels)
             }
             b"TOPIC" => {
                 let target = str(opt(message.first_parameter_as_vec())?)?;

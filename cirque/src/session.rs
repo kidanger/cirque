@@ -127,6 +127,13 @@ impl RegisteredState {
                         }
                     }
                 }
+                client_to_server::Message::Names(channels) => {
+                    for channel in channels {
+                        if let Err(err) = server_state.user_names_channel(self.user_id, &channel) {
+                            server_state.send_error(self.user_id, err);
+                        }
+                    }
+                }
                 client_to_server::Message::Nick(nick) => {
                     if let Err(err) = server_state.user_changes_nick(self.user_id, &nick) {
                         server_state.send_error(self.user_id, err);
