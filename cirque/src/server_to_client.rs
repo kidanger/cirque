@@ -51,10 +51,17 @@ pub enum Message {
     Pong {
         token: Vec<u8>,
     },
+    Mode {
+        user_fullspec: String,
+        target: String,
+        modechar: String,
+        param: Option<String>,
+    },
+    /// only as a reply to AskChannelMode
     ChannelMode {
         nickname: String,
         channel: ChannelID,
-        mode: String,
+        mode: ChannelMode,
     },
     PrivMsg {
         from_user: String,
@@ -183,6 +190,8 @@ impl Message {
                     while let Some((nick, user_mode)) = iter.next() {
                         if user_mode.is_op() {
                             stream.write_all(b"@").await?;
+                        } else if user_mode.is_voice() {
+                            stream.write_all(b"+").await?;
                         }
                         stream.write_all(nick.as_bytes()).await?;
                         if iter.peek().is_some() {
@@ -225,8 +234,8 @@ impl Message {
                     stream.write_all(&topic.content).await?;
                     stream.write_all(b"\r\n").await?;
 
-                    // for now this is disabled because chirc testsuite doesn't like it
-                    if false {
+                    // irctest requires the RPL_TOPICWHOTIME, but chirch doesn't want it
+                    if true {
                         stream.write_all(b":").await?;
                         stream.write_all(context.server_name.as_bytes()).await?;
                         stream.write_all(b" 333 ").await?;
@@ -270,6 +279,24 @@ impl Message {
                 stream.write_all(token).await?;
                 stream.write_all(b"\r\n").await?;
             }
+            Message::Mode {
+                user_fullspec,
+                target,
+                modechar,
+                param,
+            } => {
+                stream.write_all(b":").await?;
+                stream.write_all(user_fullspec.as_bytes()).await?;
+                stream.write_all(b" MODE ").await?;
+                stream.write_all(target.as_bytes()).await?;
+                stream.write_all(b" ").await?;
+                stream.write_all(modechar.as_bytes()).await?;
+                if let Some(param) = param {
+                    stream.write_all(b" ").await?;
+                    stream.write_all(param.as_bytes()).await?;
+                }
+                stream.write_all(b"\r\n").await?;
+            }
             Message::ChannelMode {
                 nickname,
                 channel,
@@ -281,8 +308,17 @@ impl Message {
                 stream.write_all(nickname.as_bytes()).await?;
                 stream.write_all(b" ").await?;
                 stream.write_all(channel.as_bytes()).await?;
-                stream.write_all(b" ").await?;
-                stream.write_all(mode.as_bytes()).await?;
+                stream.write_all(b" +").await?;
+                if true {
+                    // all channels are "no external message" for now
+                    stream.write_all(b"n").await?;
+                }
+                if mode.is_secret() {
+                    stream.write_all(b"s").await?;
+                }
+                if mode.is_topic_protected() {
+                    stream.write_all(b"t").await?;
+                }
                 stream.write_all(b"\r\n").await?;
             }
             Message::PrivMsg {

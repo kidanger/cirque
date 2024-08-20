@@ -243,7 +243,6 @@ impl ServerState {
         channel_name: &str,
     ) -> Result<(), ServerStateError> {
         let user = &self.users[&user_id];
-        //validate_channel_name(user, channel_name)?;
 
         let Some(channel) = self.channels.get_mut(channel_name) else {
             // if the channel is invalid or does not exist, returns RPL_ENDOFNAMES (366)
@@ -255,8 +254,16 @@ impl ServerState {
             return Ok(());
         };
 
-        let mut nicknames = vec![];
+        if channel.mode.is_secret() && !channel.users.contains_key(&user_id) {
+            let message = server_to_client::Message::EndOfNames {
+                nickname: user.nickname.clone(),
+                channel: channel_name.to_string(),
+            };
+            user.send(&message);
+            return Ok(());
+        }
 
+        let mut nicknames = vec![];
         for (user_id, user_mode) in &channel.users {
             let user: &RegisteredUser = &self.users[user_id];
             nicknames.push((user.nickname.clone(), user_mode.clone()));
@@ -267,7 +274,6 @@ impl ServerState {
             names: vec![(channel_name.to_owned(), channel.mode.clone(), nicknames)],
         };
         user.send(&message);
-
         Ok(())
     }
 
@@ -500,21 +506,10 @@ impl ServerState {
         }
     }
 
-    pub(crate) fn user_asks_channel_mode(&mut self, user_id: UserID, channel: &str) {
-        let user = &self.users[&user_id];
-        let message = server_to_client::Message::ChannelMode {
-            nickname: user.nickname.clone(),
-            channel: channel.to_owned(),
-            mode: "+n".to_string(),
-        };
-        user.send(&message);
-    }
-
-    pub(crate) fn user_changes_channel_mode(
+    pub(crate) fn user_asks_channel_mode(
         &mut self,
         user_id: UserID,
         channel_name: &str,
-        change: &str,
     ) -> Result<(), ServerStateError> {
         let user = &self.users[&user_id];
         validate_channel_name(user, channel_name)?;
@@ -526,23 +521,105 @@ impl ServerState {
             });
         };
 
-        if !channel.users[&user_id].is_op() {
-            return Err(ServerStateError::ChanOpPrivsNeeded {
+        let message = server_to_client::Message::ChannelMode {
+            nickname: user.nickname.clone(),
+            channel: channel_name.to_owned(),
+            mode: channel.mode.clone(),
+        };
+
+        user.send(&message);
+        Ok(())
+    }
+
+    pub(crate) fn user_changes_channel_mode(
+        &mut self,
+        user_id: UserID,
+        channel_name: &str,
+        modechar: &str,
+        param: Option<&str>,
+    ) -> Result<(), ServerStateError> {
+        let user = &self.users[&user_id];
+        validate_channel_name(user, channel_name)?;
+
+        let Some(channel) = self.channels.get_mut(channel_name) else {
+            return Err(ServerStateError::NoSuchChannel {
                 client: user.nickname.clone(),
                 channel: channel_name.to_string(),
             });
-        }
+        };
 
-        channel.mode = match change {
-            "+s" => channel.mode.with_secret(),
-            "-s" => channel.mode.without_secret(),
+        channel.ensure_user_can_set_channel_mode(user, channel_name)?;
+
+        let lookup_user = |nickname: &str| -> Option<UserID> {
+            let user_id = self
+                .users
+                .values()
+                .find(|&u| u.nickname == nickname)?
+                .user_id;
+            if !channel.users.contains_key(&user_id) {
+                return None;
+            }
+            Some(user_id)
+        };
+
+        match modechar {
+            "+s" => channel.mode = channel.mode.with_secret(),
+            "-s" => channel.mode = channel.mode.without_secret(),
+            "+t" => channel.mode = channel.mode.with_topic_protected(),
+            "-t" => channel.mode = channel.mode.without_topic_protected(),
+            "+o" | "+v" => {
+                let target = param.unwrap();
+                let target_user_id = lookup_user(target).unwrap();
+                let new_user_mode = match modechar {
+                    "+o" => ChannelUserMode::new_op(),
+                    "+v" => ChannelUserMode::new_voice(),
+                    _ => panic!(),
+                };
+                if channel
+                    .users
+                    .insert(target_user_id, new_user_mode)
+                    .is_some()
+                {
+                    let message = server_to_client::Message::Mode {
+                        user_fullspec: user.fullspec(),
+                        target: channel_name.to_string(),
+                        modechar: modechar.to_string(),
+                        param: Some(target.to_string()),
+                    };
+                    for user_id in channel.users.keys() {
+                        let user = &self.users[user_id];
+                        user.send(&message);
+                    }
+                }
+            }
+            "-o" | "-v" => {
+                let target = param.unwrap();
+                let param = param.unwrap();
+                let user_id = lookup_user(param).unwrap();
+                if channel
+                    .users
+                    .insert(user_id, ChannelUserMode::default())
+                    .is_some()
+                {
+                    let message = server_to_client::Message::Mode {
+                        user_fullspec: user.fullspec(),
+                        target: channel_name.to_string(),
+                        modechar: modechar.to_string(),
+                        param: Some(target.to_string()),
+                    };
+                    for user_id in channel.users.keys() {
+                        let user = &self.users[user_id];
+                        user.send(&message);
+                    }
+                }
+            }
             _ => {
                 return Err(ServerStateError::UnknownMode {
                     client: user.nickname.clone(),
-                    modechar: change.to_string(),
+                    modechar: modechar.to_string(),
                 });
             }
-        };
+        }
 
         Ok(())
     }
@@ -550,24 +627,19 @@ impl ServerState {
     pub(crate) fn user_sets_topic(
         &mut self,
         user_id: UserID,
-        target: &str,
+        channel_name: &str,
         content: &Vec<u8>,
     ) -> Result<(), ServerStateError> {
         let user = &self.users[&user_id];
 
-        let Some(channel) = self.channels.get_mut(target) else {
-            return Err(ServerStateError::NotOnChannel {
+        let Some(channel) = self.channels.get_mut(channel_name) else {
+            return Err(ServerStateError::NoSuchChannel {
                 client: user.nickname.clone(),
-                channel: target.into(),
+                channel: channel_name.into(),
             });
         };
 
-        if !channel.users.contains_key(&user_id) {
-            return Err(ServerStateError::NotOnChannel {
-                client: user.nickname.clone(),
-                channel: target.into(),
-            });
-        }
+        channel.ensure_user_can_set_topic(user, channel_name)?;
 
         channel.topic.content.clone_from(content);
         channel.topic.ts = SystemTime::now()
@@ -578,7 +650,7 @@ impl ServerState {
 
         let message = &server_to_client::Message::Topic {
             user_fullspec: user.fullspec(),
-            channel: target.into(),
+            channel: channel_name.into(),
             topic: channel.topic.clone(),
         };
         channel
@@ -592,28 +664,28 @@ impl ServerState {
     pub(crate) fn user_wants_topic(
         &mut self,
         user_id: UserID,
-        target: &str,
+        channel_name: &str,
     ) -> Result<(), ServerStateError> {
         let user = &self.users[&user_id];
 
-        let Some(channel) = self.channels.get_mut(target) else {
-            return Err(ServerStateError::NotOnChannel {
+        let Some(channel) = self.channels.get_mut(channel_name) else {
+            return Err(ServerStateError::NoSuchChannel {
                 client: user.nickname.clone(),
-                channel: target.into(),
+                channel: channel_name.into(),
             });
         };
 
         if !channel.users.contains_key(&user_id) {
             return Err(ServerStateError::NotOnChannel {
                 client: user.nickname.clone(),
-                channel: target.into(),
+                channel: channel_name.into(),
             });
         }
 
         let topic = &channel.topic;
         let message = server_to_client::Message::RplTopic {
             nickname: user.nickname.clone(),
-            channel: target.into(),
+            channel: channel_name.into(),
             topic: if topic.is_valid() {
                 Some(channel.topic.clone())
             } else {

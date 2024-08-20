@@ -29,12 +29,16 @@ if __name__ == "__main__":
         "CONNECTION_REGISTRATION",
         "PRIVMSG_NOTICE",
         "MOTD",
-        "CHANNEL_TOPIC",
+
         # disabled:
         # "ERR_UNKNOWN",
         #   because WHOWAS is not handled or something like that
         # "PING_PONG",
         #   because it allows optional tokens
+        # "NAMES",
+        #   because it allows optional target channel
+        # "CHANNEL_TOPIC",
+        #   because it doesn't accept RPL_TOPICWHOTIME 333
     ]:
         subprocess.run(
             [

@@ -16,3 +16,4 @@ PYTHONPATH=tests/testsuite-irctest/ pytest -v -n 3 --controller cirque irctest/i
 PYTHONPATH=tests/testsuite-irctest/ pytest -v -n 3 --controller cirque irctest/irctest/server_tests/join.py -k "$filters"
 PYTHONPATH=tests/testsuite-irctest/ pytest -v -n 3 --controller cirque irctest/irctest/server_tests/part.py -k "$filters"
 PYTHONPATH=tests/testsuite-irctest/ pytest -v -n 3 --controller cirque irctest/irctest/server_tests/names.py -k "$filters"
+PYTHONPATH=tests/testsuite-irctest/ pytest -v -n 3 --controller cirque irctest/irctest/server_tests/topic.py -k "$filters"

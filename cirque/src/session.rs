@@ -149,12 +149,17 @@ impl RegisteredState {
                     }
                 }
                 client_to_server::Message::AskModeChannel(channel) => {
-                    server_state.user_asks_channel_mode(self.user_id, &channel);
+                    if let Err(err) = server_state.user_asks_channel_mode(self.user_id, &channel) {
+                        server_state.send_error(self.user_id, err);
+                    }
                 }
-                client_to_server::Message::ChangeModeChannel(channel, change) => {
-                    if let Err(err) =
-                        server_state.user_changes_channel_mode(self.user_id, &channel, &change)
-                    {
+                client_to_server::Message::ChangeModeChannel(channel, modechar, param) => {
+                    if let Err(err) = server_state.user_changes_channel_mode(
+                        self.user_id,
+                        &channel,
+                        &modechar,
+                        param.as_deref(),
+                    ) {
                         server_state.send_error(self.user_id, err);
                     }
                 }

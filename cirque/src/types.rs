@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
-use crate::server_to_client;
+use crate::{server_state::ServerStateError, server_to_client};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct UserID(uuid::Uuid);
@@ -94,10 +94,8 @@ impl Topic {
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct ChannelUserMode {
-    founder: bool,
-    protected: bool,
+    // it's not clear yet if a user can be both thing at once
     op: bool,
-    halfop: bool,
     voice: bool,
 }
 
@@ -109,24 +107,29 @@ impl ChannelUserMode {
         }
     }
 
+    pub(crate) fn new_voice() -> Self {
+        Self {
+            voice: true,
+            ..Default::default()
+        }
+    }
+
     pub fn is_op(&self) -> bool {
         self.op
+    }
+
+    pub(crate) fn is_voice(&self) -> bool {
+        self.voice
     }
 }
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct ChannelMode {
     secret: bool,
+    topic_protected: bool,
 }
 
 impl ChannelMode {
-    pub(crate) fn new_secret() -> Self {
-        Self {
-            secret: true,
-            ..Default::default()
-        }
-    }
-
     pub fn is_secret(&self) -> bool {
         self.secret
     }
@@ -144,6 +147,24 @@ impl ChannelMode {
             ..self.clone()
         }
     }
+
+    pub fn is_topic_protected(&self) -> bool {
+        self.topic_protected
+    }
+
+    pub(crate) fn with_topic_protected(&self) -> Self {
+        Self {
+            topic_protected: true,
+            ..self.clone()
+        }
+    }
+
+    pub(crate) fn without_topic_protected(&self) -> Self {
+        Self {
+            topic_protected: false,
+            ..self.clone()
+        }
+    }
 }
 
 #[derive(Debug, Default)]
@@ -151,4 +172,55 @@ pub(crate) struct Channel {
     pub(crate) topic: Topic,
     pub(crate) users: HashMap<UserID, ChannelUserMode>,
     pub(crate) mode: ChannelMode,
+}
+impl Channel {
+    pub(crate) fn ensure_user_can_set_topic(
+        &self,
+        user: &RegisteredUser,
+        channel_name: &str,
+    ) -> Result<(), ServerStateError> {
+        let user_id = &user.user_id;
+
+        let user_mode = self
+            .users
+            .get(user_id)
+            .ok_or_else(|| ServerStateError::NotOnChannel {
+                client: user.nickname.clone(),
+                channel: channel_name.into(),
+            })?;
+
+        if !user_mode.is_op() && self.mode.is_topic_protected() {
+            return Err(ServerStateError::ChanOpPrivsNeeded {
+                client: user.nickname.clone(),
+                channel: channel_name.to_string(),
+            });
+        }
+
+        Ok(())
+    }
+
+    pub(crate) fn ensure_user_can_set_channel_mode(
+        &self,
+        user: &RegisteredUser,
+        channel_name: &str,
+    ) -> Result<(), ServerStateError> {
+        let user_id = &user.user_id;
+
+        let user_mode = self
+            .users
+            .get(user_id)
+            .ok_or_else(|| ServerStateError::NotOnChannel {
+                client: user.nickname.clone(),
+                channel: channel_name.into(),
+            })?;
+
+        if !user_mode.is_op() {
+            return Err(ServerStateError::ChanOpPrivsNeeded {
+                client: user.nickname.clone(),
+                channel: channel_name.to_string(),
+            });
+        }
+
+        Ok(())
+    }
 }
