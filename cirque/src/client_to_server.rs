@@ -100,6 +100,10 @@ impl TryFrom<&cirque_parser::Message<'_>> for Message {
                     })?
                     .split(|&c| c == b',')
                     .flat_map(|s| str(s.to_owned()))
+                    .map(|mut s| {
+                        s.make_ascii_lowercase();
+                        s
+                    })
                     .collect::<Vec<_>>();
                 Message::Join(channels)
             }
@@ -111,11 +115,16 @@ impl TryFrom<&cirque_parser::Message<'_>> for Message {
                     })?
                     .split(|&c| c == b',')
                     .flat_map(|s| str(s.to_owned()))
+                    .map(|mut s| {
+                        s.make_ascii_lowercase();
+                        s
+                    })
                     .collect::<Vec<_>>();
                 Message::Names(channels)
             }
             b"TOPIC" => {
-                let target = str(opt(message.first_parameter_as_vec())?)?;
+                let mut target = str(opt(message.first_parameter_as_vec())?)?;
+                target.make_ascii_lowercase();
                 match params.get(1) {
                     Some(content) => {
                         let content = content.to_vec();
@@ -125,8 +134,10 @@ impl TryFrom<&cirque_parser::Message<'_>> for Message {
                 }
             }
             b"MODE" => {
+                let mut target = str(opt(message.first_parameter_as_vec())?)?;
                 // for now we will assume that the target is a channel
-                let target = str(opt(message.first_parameter_as_vec())?)?;
+                assert!(target.starts_with('#'));
+                target.make_ascii_lowercase();
                 if let Some(change) = params.get(1) {
                     let param = if let Some(param) = params.get(2) {
                         Some(str(param.to_vec())?)
@@ -145,7 +156,10 @@ impl TryFrom<&cirque_parser::Message<'_>> for Message {
                         .ok_or(MessageDecodingError::NoRecipient {
                             command: str(message.command().to_vec())?,
                         })?;
-                let target = str(target)?;
+                let mut target = str(target)?;
+                if target.starts_with('#') {
+                    target.make_ascii_lowercase();
+                }
                 let content = params
                     .get(1)
                     .ok_or(MessageDecodingError::NoTextToSend {})?
@@ -156,7 +170,10 @@ impl TryFrom<&cirque_parser::Message<'_>> for Message {
                 let target = message
                     .first_parameter_as_vec()
                     .ok_or(MessageDecodingError::SilentError {})?;
-                let target = str(target)?;
+                let mut target = str(target)?;
+                if target.starts_with('#') {
+                    target.make_ascii_lowercase();
+                }
                 let content = params
                     .get(1)
                     .ok_or(MessageDecodingError::SilentError {})?
@@ -171,6 +188,10 @@ impl TryFrom<&cirque_parser::Message<'_>> for Message {
                     })?
                     .split(|&c| c == b',')
                     .flat_map(|s| String::from_utf8(s.to_owned()))
+                    .map(|mut s| {
+                        s.make_ascii_lowercase();
+                        s
+                    })
                     .collect::<Vec<_>>();
                 let reason = params.get(1).map(|e| e.to_vec());
                 Message::Part(channels, reason)
@@ -198,6 +219,10 @@ impl TryFrom<&cirque_parser::Message<'_>> for Message {
                         first_parameter
                             .split(|&c| c == b',')
                             .flat_map(|s| String::from_utf8(s.to_owned()))
+                            .map(|mut s| {
+                                s.make_ascii_lowercase();
+                                s
+                            })
                             .collect::<Vec<_>>(),
                     );
                     if channels.as_ref().is_some() && !channels.as_ref().unwrap().is_empty() {

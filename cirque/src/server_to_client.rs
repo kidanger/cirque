@@ -152,6 +152,14 @@ impl Message {
                 stream.write_all(b" ").await?;
                 stream.write_all(context.server_name.as_bytes()).await?;
                 stream.write_all(b" 0 + +\r\n").await?;
+
+                stream.write_all(b":").await?;
+                stream.write_all(context.server_name.as_bytes()).await?;
+                stream.write_all(b" 005 ").await?;
+                stream.write_all(nickname.as_bytes()).await?;
+                stream
+                    .write_all(b" CASEMAPPING=ascii :are supported by this server\r\n")
+                    .await?;
             }
             Message::Join {
                 channel,
