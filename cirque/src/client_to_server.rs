@@ -1,5 +1,3 @@
-use core::num;
-
 use crate::types::ChannelID;
 
 #[derive(Debug, Default, PartialEq)]

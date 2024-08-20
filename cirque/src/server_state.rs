@@ -9,11 +9,11 @@ use tokio::io::AsyncWriteExt;
 use crate::client_to_server::{ListFilter, ListOperation, ListOption, MessageDecodingError};
 use crate::server_to_client::{self, ChannelInfo};
 use crate::transport;
-use crate::types::Channel;
 use crate::types::ChannelID;
 use crate::types::RegisteredUser;
 use crate::types::RegisteringUser;
 use crate::types::UserID;
+use crate::types::{Channel, ChannelUserMode};
 
 pub type SharedServerState = Arc<Mutex<ServerState>>;
 
@@ -189,11 +189,11 @@ impl ServerState {
 
         let channel = self.channels.entry(channel_name.to_owned()).or_default();
 
-        if channel.users.contains(&user_id) {
+        if channel.users.contains_key(&user_id) {
             return Ok(());
         }
 
-        channel.users.insert(user_id);
+        channel.users.insert(user_id, ChannelUserMode::default());
 
         // notify everyone, including the joiner
         let mut nicknames = vec![];
@@ -202,7 +202,7 @@ impl ServerState {
             channel: channel_name.to_owned(),
             user_fullspec: joiner_spec,
         };
-        for user_id in &channel.users {
+        for user_id in channel.users.keys() {
             let user: &RegisteredUser = &self.users[user_id];
             nicknames.push(user.nickname.clone());
             user.send(&message);
@@ -244,7 +244,7 @@ impl ServerState {
 
         let mut nicknames = vec![];
 
-        for user_id in &channel.users {
+        for user_id in channel.users.keys() {
             let user: &RegisteredUser = &self.users[user_id];
             nicknames.push(user.nickname.clone());
         }
@@ -274,7 +274,7 @@ impl ServerState {
             });
         };
 
-        if !channel.users.contains(&user_id) {
+        if !channel.users.contains_key(&user_id) {
             return Err(ServerStateError::NotOnChannel {
                 client: user.nickname.clone(),
                 channel: channel_name.to_string(),
@@ -286,7 +286,7 @@ impl ServerState {
             channel: channel_name.to_string(),
             reason: reason.clone(),
         };
-        for user_id in &channel.users {
+        for user_id in channel.users.keys() {
             let user = &self.users[user_id];
             user.send(&message);
         }
@@ -309,9 +309,9 @@ impl ServerState {
             reason: reason.to_vec(),
         };
         for channel in self.channels.values_mut() {
-            if channel.users.contains(&user_id) {
+            if channel.users.contains_key(&user_id) {
                 channel.users.remove(&user_id);
-                for user_id in &channel.users {
+                for user_id in channel.users.keys() {
                     let user = &self.users[user_id];
                     user.send(&message);
                 }
@@ -341,9 +341,9 @@ impl ServerState {
             reason: reason.to_vec(),
         };
         for channel in self.channels.values_mut() {
-            if channel.users.contains(&user_id) {
+            if channel.users.contains_key(&user_id) {
                 channel.users.remove(&user_id);
-                for user_id in &channel.users {
+                for user_id in channel.users.keys() {
                     let user = &self.users[user_id];
                     user.send(&message);
                 }
@@ -376,8 +376,8 @@ impl ServerState {
 
         // TODO: maybe make sure we don't send it multiple times to the same client?
         for channel in self.channels.values_mut() {
-            if channel.users.contains(&user_id) {
-                for user_id in &channel.users {
+            if channel.users.contains_key(&user_id) {
+                for user_id in channel.users.keys() {
                     let user = &self.users[user_id];
                     user.send(&message);
                 }
@@ -425,7 +425,7 @@ impl ServerState {
 
         match obj {
             LookupResult::Channel(channel) => {
-                if !channel.users.contains(&user_id) {
+                if !channel.users.contains_key(&user_id) {
                     let message =
                         server_to_client::Message::Err(ServerStateError::CannotSendToChan {
                             client: user.nickname.to_string(),
@@ -437,7 +437,7 @@ impl ServerState {
 
                 channel
                     .users
-                    .iter()
+                    .keys()
                     .filter(|&uid| *uid != user_id)
                     .flat_map(|u| self.users.get(u))
                     .for_each(|u| u.send(&message));
@@ -469,14 +469,14 @@ impl ServerState {
 
         match obj {
             LookupResult::Channel(channel) => {
-                if !channel.users.contains(&user_id) {
+                if !channel.users.contains_key(&user_id) {
                     // NOTICE shouldn't receive an error
                     return;
                 }
 
                 channel
                     .users
-                    .iter()
+                    .keys()
                     .filter(|&uid| *uid != user_id)
                     .flat_map(|u| self.users.get(u))
                     .for_each(|u| u.send(&message));
@@ -512,7 +512,7 @@ impl ServerState {
             });
         };
 
-        if !channel.users.contains(&user_id) {
+        if !channel.users.contains_key(&user_id) {
             return Err(ServerStateError::NotOnChannel {
                 client: user.nickname.clone(),
                 channel: target.into(),
@@ -533,7 +533,7 @@ impl ServerState {
         };
         channel
             .users
-            .iter()
+            .keys()
             .flat_map(|u| self.users.get(u))
             .for_each(|u| u.send(message));
         Ok(())
@@ -553,7 +553,7 @@ impl ServerState {
             });
         };
 
-        if !channel.users.contains(&user_id) {
+        if !channel.users.contains_key(&user_id) {
             return Err(ServerStateError::NotOnChannel {
                 client: user.nickname.clone(),
                 channel: target.into(),

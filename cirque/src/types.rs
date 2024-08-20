@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::HashMap;
 
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
@@ -93,7 +93,16 @@ impl Topic {
 }
 
 #[derive(Debug, Default)]
-pub struct Channel {
+pub(crate) struct ChannelUserMode {
+    founder: bool,
+    protected: bool,
+    op: bool,
+    halfop: bool,
+    voice: bool,
+}
+
+#[derive(Debug, Default)]
+pub(crate) struct Channel {
     pub(crate) topic: Topic,
-    pub(crate) users: HashSet<UserID>,
+    pub(crate) users: HashMap<UserID, ChannelUserMode>,
 }
