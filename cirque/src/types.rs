@@ -92,7 +92,7 @@ impl Topic {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub(crate) struct ChannelUserMode {
     founder: bool,
     protected: bool,
@@ -101,8 +101,40 @@ pub(crate) struct ChannelUserMode {
     voice: bool,
 }
 
+impl ChannelUserMode {
+    pub(crate) fn new_op() -> Self {
+        Self {
+            op: true,
+            ..Default::default()
+        }
+    }
+
+    pub fn is_op(&self) -> bool {
+        self.op
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub(crate) struct ChannelMode {
+    secret: bool,
+}
+
+impl ChannelMode {
+    pub(crate) fn new_secret() -> Self {
+        Self {
+            secret: true,
+            ..Default::default()
+        }
+    }
+
+    pub fn is_secret(&self) -> bool {
+        self.secret
+    }
+}
+
 #[derive(Debug, Default)]
 pub(crate) struct Channel {
     pub(crate) topic: Topic,
     pub(crate) users: HashMap<UserID, ChannelUserMode>,
+    pub(crate) mode: ChannelMode,
 }

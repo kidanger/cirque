@@ -3,7 +3,7 @@ use tokio::io::AsyncWriteExt;
 use crate::{
     server_state::ServerStateError,
     transport,
-    types::{ChannelID, Topic},
+    types::{ChannelID, ChannelMode, ChannelUserMode, Topic},
 };
 
 #[derive(Debug, Clone)]
@@ -29,7 +29,7 @@ pub enum Message {
     },
     Names {
         nickname: String,
-        names: Vec<(ChannelID, Vec<String>)>,
+        names: Vec<(ChannelID, ChannelMode, Vec<(String, ChannelUserMode)>)>,
     },
     /// reply to a GetTopic command or Join command
     RplTopic {
@@ -162,16 +162,23 @@ impl Message {
                 stream.write_all(b"\r\n").await?;
             }
             Message::Names { names, nickname } => {
-                for (channel, nicknames) in names {
+                for (channel, channel_mode, nicknames) in names {
                     stream.write_all(b":").await?;
                     stream.write_all(context.server_name.as_bytes()).await?;
                     stream.write_all(b" 353 ").await?;
                     stream.write_all(nickname.as_bytes()).await?;
-                    stream.write_all(b" = ").await?;
+                    if channel_mode.is_secret() {
+                        stream.write_all(b" @ ").await?;
+                    } else {
+                        stream.write_all(b" = ").await?;
+                    }
                     stream.write_all(channel.as_bytes()).await?;
                     stream.write_all(b" :").await?;
                     let mut iter = nicknames.iter().peekable();
-                    while let Some(nick) = iter.next() {
+                    while let Some((nick, user_mode)) = iter.next() {
+                        if user_mode.is_op() {
+                            stream.write_all(b"@").await?;
+                        }
                         stream.write_all(nick.as_bytes()).await?;
                         if iter.peek().is_some() {
                             stream.write_all(b" ").await?;

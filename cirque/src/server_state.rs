@@ -193,7 +193,13 @@ impl ServerState {
             return Ok(());
         }
 
-        channel.users.insert(user_id, ChannelUserMode::default());
+        let user_mode = if channel.users.is_empty() {
+            ChannelUserMode::new_op()
+        } else {
+            ChannelUserMode::default()
+        };
+
+        channel.users.insert(user_id, user_mode);
 
         // notify everyone, including the joiner
         let mut nicknames = vec![];
@@ -202,9 +208,9 @@ impl ServerState {
             channel: channel_name.to_owned(),
             user_fullspec: joiner_spec,
         };
-        for user_id in channel.users.keys() {
+        for (user_id, user_mode) in &channel.users {
             let user: &RegisteredUser = &self.users[user_id];
-            nicknames.push(user.nickname.clone());
+            nicknames.push((user.nickname.clone(), user_mode.clone()));
             user.send(&message);
         }
 
@@ -220,7 +226,7 @@ impl ServerState {
 
         let message = server_to_client::Message::Names {
             nickname: user.nickname.clone(),
-            names: vec![(channel_name.to_owned(), nicknames)],
+            names: vec![(channel_name.to_owned(), channel.mode.clone(), nicknames)],
         };
         user.send(&message);
 
@@ -244,14 +250,14 @@ impl ServerState {
 
         let mut nicknames = vec![];
 
-        for user_id in channel.users.keys() {
+        for (user_id, user_mode) in &channel.users {
             let user: &RegisteredUser = &self.users[user_id];
-            nicknames.push(user.nickname.clone());
+            nicknames.push((user.nickname.clone(), user_mode.clone()));
         }
 
         let message = server_to_client::Message::Names {
             nickname: user.nickname.clone(),
-            names: vec![(channel_name.to_owned(), nicknames)],
+            names: vec![(channel_name.to_owned(), channel.mode.clone(), nicknames)],
         };
         user.send(&message);
 
