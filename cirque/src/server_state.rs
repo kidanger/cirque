@@ -55,6 +55,8 @@ pub enum ServerStateError {
     NotRegistered { client: String },
     #[error("461 {client} {command} :Not enough parameters")]
     NeedMoreParams { client: String, command: String },
+    #[error("464 {client} :Password incorrect")]
+    PasswdMismatch { client: String },
     #[error("472 {client} {modechar} :is unknown mode char to me")]
     UnknownMode { client: String, modechar: String },
     #[error("476 {client} {channel} :Bad Channel Mask")]
@@ -139,6 +141,7 @@ pub struct ServerState {
     channels: HashMap<ChannelID, Channel>,
     welcome_config: WelcomeConfig,
     motd_provider: Arc<dyn MOTDProvider + Send + Sync>,
+    pub(crate) password: Option<Vec<u8>>,
 }
 
 impl ServerState {
@@ -146,6 +149,7 @@ impl ServerState {
         server_name: &str,
         welcome_config: &WelcomeConfig,
         motd_provider: Arc<MP>,
+        password: Option<Vec<u8>>,
     ) -> Self
     where
         MP: MOTDProvider + Send + Sync + 'static,
@@ -157,6 +161,7 @@ impl ServerState {
             channels: Default::default(),
             welcome_config: welcome_config.to_owned(),
             motd_provider,
+            password,
         }
     }
 

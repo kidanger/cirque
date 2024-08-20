@@ -38,6 +38,7 @@ pub(crate) struct RegisteringUser {
     pub(crate) user_id: UserID,
     pub(crate) nickname: Option<String>,
     pub(crate) username: Option<String>,
+    pub(crate) password: Option<Vec<u8>>,
     mailbox: UnboundedSender<server_to_client::Message>,
 }
 
@@ -49,6 +50,7 @@ impl RegisteringUser {
             user_id,
             nickname: None,
             username: None,
+            password: None,
             mailbox: tx,
         };
         (user, rx)

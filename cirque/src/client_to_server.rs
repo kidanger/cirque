@@ -28,6 +28,7 @@ pub(crate) enum Message {
     Cap,
     Nick(String),
     User(String),
+    Pass(Vec<u8>),
     Ping(Vec<u8>),
     Pong(Vec<u8>),
     Join(Vec<ChannelID>),
@@ -89,6 +90,14 @@ impl TryFrom<&cirque_parser::Message<'_>> for Message {
                     });
                 }
                 Message::User(user)
+            }
+            b"PASS" => {
+                let pass = message.first_parameter_as_vec().ok_or(
+                    MessageDecodingError::NotEnoughParameters {
+                        command: str(message.command().to_vec())?,
+                    },
+                )?;
+                Message::Pass(pass)
             }
             b"PING" => Message::Ping(opt(message.first_parameter_as_vec())?),
             b"PONG" => Message::Pong(opt(message.first_parameter_as_vec())?),

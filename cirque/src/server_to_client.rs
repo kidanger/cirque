@@ -156,7 +156,7 @@ impl Message {
                 stream.write_all(nickname.as_bytes()).await?;
                 stream.write_all(b" ").await?;
                 stream.write_all(context.server_name.as_bytes()).await?;
-                stream.write_all(b" 0 + +\r\n").await?;
+                stream.write_all(b" 0 a a\r\n").await?;
 
                 // chirch doesn't like 005, but it's better with it for irctest
                 if welcome_config.send_isupport {

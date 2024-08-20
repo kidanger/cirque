@@ -11,6 +11,9 @@ struct Args {
 
     #[arg(short, long)]
     server_name: String,
+
+    #[arg(long)]
+    password: Option<String>,
 }
 
 struct FileMOTDProvider {
@@ -42,7 +45,8 @@ async fn main() -> anyhow::Result<()> {
     let motd_provider = Arc::new(FileMOTDProvider {
         filename: "motd.txt".to_string(),
     });
+    let password = args.password.map(|p| p.as_bytes().into());
 
-    let server_state = ServerState::new(server_name, &welcome_config, motd_provider);
+    let server_state = ServerState::new(server_name, &welcome_config, motd_provider, password);
     cirque::run_server(listener, server_state).await
 }

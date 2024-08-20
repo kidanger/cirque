@@ -32,6 +32,7 @@ impl RegisteringState {
             client_to_server::Message::Cap => {
                 // ignore for now
             }
+            client_to_server::Message::Pass(password) => user.password = Some(password),
             client_to_server::Message::Nick(nick) => {
                 let is_nickname_valid = server_state.check_nickname(&nick, None);
                 match is_nickname_valid {
@@ -71,6 +72,14 @@ impl RegisteringState {
         };
 
         if user.is_ready() {
+            if user.password != server_state.password {
+                let message = server_to_client::Message::Err(ServerStateError::PasswdMismatch {
+                    client: user.maybe_nickname(),
+                });
+                user.send(&message);
+                return Ok(SessionState::Disconnected);
+            }
+
             let user = RegisteredUser::from(self.user);
             let state = RegisteredState {
                 user_id: user.user_id,

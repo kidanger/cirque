@@ -19,6 +19,8 @@ class CirqueController(BaseServerController, DirectoryBasedController):
         config: Optional[Any] = None,
     ) -> None:
         args = ["-p", str(port), "--server-name", "My.Little.Server"]
+        if password:
+            args += ["--password", password]
         bin = os.path.join(os.getcwd(), "target/debug/irctest-compat")
         self.debug_mode = True
         self.proc = self.execute([bin] + args)
