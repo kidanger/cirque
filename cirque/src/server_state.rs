@@ -179,7 +179,12 @@ impl ServerState {
         user_id: Option<UserID>,
     ) -> Result<(), ServerStateError> {
         let look = self.lookup_target(nickname);
-        if look.is_none() {
+        if look.is_none()
+            && !self
+                .registering_users
+                .values()
+                .any(|u| u.nickname.as_deref() == Some(nickname))
+        {
             return Ok(());
         }
 
