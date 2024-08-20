@@ -4,7 +4,7 @@ use crate::server_state::{ServerStateError, SharedServerState};
 use crate::transport::AnyStream;
 use crate::types::{RegisteredUser, RegisteringUser, UserID};
 use crate::{client_to_server, server_to_client, ServerState};
-use cirque_parser::{LendingIterator, StreamParser};
+use cirque_parser::{LendingIterator, MessageIteratorError, StreamParser};
 
 struct RegisteringState {
     user: RegisteringUser,
@@ -248,10 +248,15 @@ impl Session {
                     }
 
                     let mut iter = stream_parser.consume_iter();
+                    let mut reset_buffer = false;
                     while let Some(message) = iter.next() {
                         let message = match message {
                             Ok(m) => m,
-                            Err(e) => {
+                            Err(MessageIteratorError::BufferFullWithoutMessageError) => {
+                                reset_buffer = true;
+                                break;
+                            }
+                            Err(MessageIteratorError::ParsingError(e)) => {
                                 dbg!("weird message: {}", e);
                                 continue;
                             }
@@ -259,6 +264,9 @@ impl Session {
 
                         let mut server_state = server_state.lock().unwrap();
                         state = state.handle_message(&mut server_state, message)?;
+                    }
+                    if reset_buffer {
+                        stream_parser.clear();
                     }
                 },
                 Some(message) = rx.recv() => {

@@ -224,3 +224,16 @@ impl Channel {
         Ok(())
     }
 }
+
+#[derive(Debug, Clone)]
+pub struct WelcomeConfig {
+    pub send_isupport: bool,
+}
+
+impl Default for WelcomeConfig {
+    fn default() -> Self {
+        Self {
+            send_isupport: true,
+        }
+    }
+}

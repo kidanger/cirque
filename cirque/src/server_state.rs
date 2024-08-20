@@ -9,11 +9,11 @@ use tokio::io::AsyncWriteExt;
 use crate::client_to_server::{ListFilter, ListOperation, ListOption, MessageDecodingError};
 use crate::server_to_client::{self, ChannelInfo};
 use crate::transport;
-use crate::types::ChannelID;
 use crate::types::RegisteredUser;
 use crate::types::RegisteringUser;
 use crate::types::UserID;
 use crate::types::{Channel, ChannelUserMode};
+use crate::types::{ChannelID, WelcomeConfig};
 
 pub type SharedServerState = Arc<Mutex<ServerState>>;
 
@@ -131,11 +131,16 @@ pub struct ServerState {
     users: HashMap<UserID, RegisteredUser>,
     connecting_users: HashMap<UserID, RegisteringUser>,
     channels: HashMap<ChannelID, Channel>,
+    welcome_config: WelcomeConfig,
     motd_provider: Arc<dyn MOTDProvider + Send + Sync>,
 }
 
 impl ServerState {
-    pub fn new<MP>(server_name: &str, motd_provider: Arc<MP>) -> Self
+    pub fn new<MP>(
+        server_name: &str,
+        welcome_config: &WelcomeConfig,
+        motd_provider: Arc<MP>,
+    ) -> Self
     where
         MP: MOTDProvider + Send + Sync + 'static,
     {
@@ -144,6 +149,7 @@ impl ServerState {
             users: Default::default(),
             connecting_users: Default::default(),
             channels: Default::default(),
+            welcome_config: welcome_config.to_owned(),
             motd_provider,
         }
     }
@@ -700,6 +706,7 @@ impl ServerState {
         let message = server_to_client::Message::Welcome {
             nickname: user.nickname.clone(),
             user_fullspec: user.fullspec(),
+            welcome_config: self.welcome_config.clone(),
         };
         user.send(&message);
 

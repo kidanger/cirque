@@ -4,6 +4,7 @@ use crate::{
     server_state::ServerStateError,
     transport,
     types::{ChannelID, ChannelMode, ChannelUserMode, Topic},
+    WelcomeConfig,
 };
 
 #[derive(Debug, Clone)]
@@ -18,6 +19,7 @@ pub enum Message {
     Welcome {
         nickname: String,
         user_fullspec: String,
+        welcome_config: WelcomeConfig,
     },
     Join {
         channel: ChannelID,
@@ -114,10 +116,13 @@ impl Message {
         stream: &mut impl transport::Stream,
         context: &MessageContext,
     ) -> std::io::Result<()> {
+        // TODO: we should make sure not to write more than 512 bytes including \r\n
+        //       we could wrap the Stream into a MessageStream respecting this contraint
         match self {
             Message::Welcome {
                 nickname,
                 user_fullspec,
+                welcome_config,
             } => {
                 stream.write_all(b":").await?;
                 stream.write_all(context.server_name.as_bytes()).await?;
@@ -153,13 +158,16 @@ impl Message {
                 stream.write_all(context.server_name.as_bytes()).await?;
                 stream.write_all(b" 0 + +\r\n").await?;
 
-                stream.write_all(b":").await?;
-                stream.write_all(context.server_name.as_bytes()).await?;
-                stream.write_all(b" 005 ").await?;
-                stream.write_all(nickname.as_bytes()).await?;
-                stream
-                    .write_all(b" CASEMAPPING=ascii :are supported by this server\r\n")
-                    .await?;
+                // chirch doesn't like 005, but it's better with it for irctest
+                if welcome_config.send_isupport {
+                    stream.write_all(b":").await?;
+                    stream.write_all(context.server_name.as_bytes()).await?;
+                    stream.write_all(b" 005 ").await?;
+                    stream.write_all(nickname.as_bytes()).await?;
+                    stream
+                        .write_all(b" CASEMAPPING=ascii :are supported by this server\r\n")
+                        .await?;
+                }
             }
             Message::Join {
                 channel,

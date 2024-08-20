@@ -5,7 +5,7 @@ use slice_ring_buffer::SliceRingBuffer;
 use crate::parser::parse_message;
 use crate::Message;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ParsingError(String);
 
 impl std::fmt::Display for ParsingError {
@@ -37,7 +37,12 @@ impl StreamParser {
     pub fn consume_iter(&mut self) -> MessageIterator {
         MessageIterator {
             stream_parser: self,
+            buffer_is_full: false,
         }
+    }
+
+    pub fn clear(&mut self) {
+        self.buffer.clear();
     }
 }
 
@@ -106,6 +111,12 @@ fn consume_line(buf: &mut SliceRingBuffer<u8>) -> Option<&[u8]> {
         buf.move_head(cur);
     }
 
+    // restrict the message length to 512 characters
+    // this is not strictly necessary but might prevent some abuse
+    // the head of the buffer was still moved by the correct amont (till the end of line),
+    // so this truncates the line but keep the next message clean
+    let cur = cur.min(512);
+
     // retrieve the line from the pointer
     // SAFETY:
     // - the data is aligned because it is u8, and of size `cur` since it was part of the buffer
@@ -118,6 +129,13 @@ fn consume_line(buf: &mut SliceRingBuffer<u8>) -> Option<&[u8]> {
 
 pub struct MessageIterator<'a> {
     stream_parser: &'a mut StreamParser,
+    buffer_is_full: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MessageIteratorError {
+    ParsingError(ParsingError),
+    BufferFullWithoutMessageError,
 }
 
 #[gat]
@@ -125,22 +143,41 @@ impl LendingIterator for MessageIterator<'_> {
     type Item<'next>
     where
         Self: 'next,
-    = Result<Message<'next>, ParsingError>;
+    = Result<Message<'next>, MessageIteratorError>;
 
-    fn next(&mut self) -> Option<Result<Message, ParsingError>> {
-        let line = consume_line(&mut self.stream_parser.buffer)?;
+    fn next(&mut self) -> Option<Result<Message, MessageIteratorError>> {
+        if self.buffer_is_full {
+            return None;
+        }
+
+        let is_full = self.stream_parser.buffer.is_full();
+        let line = consume_line(&mut self.stream_parser.buffer);
+        if line.is_none() && is_full {
+            // next iteration should stop
+            self.buffer_is_full = true;
+            return Some(Err(MessageIteratorError::BufferFullWithoutMessageError {}));
+        }
+
+        let line = line?;
         let result = parse_message(line);
         let result = result
             .map(|(_, msg)| msg)
-            .map_err(|err| ParsingError(err.to_string()));
+            .map_err(|err| MessageIteratorError::ParsingError(ParsingError(err.to_string())));
+
         Some(result)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::StreamParser;
+    use std::io::Write;
+
+    use bytes::BufMut;
     use lending_iterator::LendingIterator;
+
+    use crate::MessageIteratorError;
+
+    use super::StreamParser;
 
     #[test]
     fn test_empty() {
@@ -194,5 +231,59 @@ mod tests {
         sp.feed_from_slice(b"\n");
         let iter = sp.consume_iter();
         assert_eq!(iter.count(), 1);
+    }
+
+    #[test]
+    fn test_fill_100m_10b() {
+        use bytes::BufMut;
+        use std::io::Write;
+        let mut sp = StreamParser::default();
+        let mut writer = sp.writer();
+        for _ in 0..100 {
+            let c = writer.write(b"012345678\n").unwrap();
+            assert_eq!(c, 10);
+        }
+
+        sp = writer.into_inner();
+        let iter = sp.consume_iter();
+        let m = iter.count();
+        assert_eq!(m, 100);
+    }
+
+    #[test]
+    fn test_fill_0m() {
+        let mut sp = StreamParser::default();
+        let mut writer = sp.writer();
+        for _ in 0..100 {
+            writer.write_all(b"012345678\n").unwrap();
+        }
+
+        sp = writer.into_inner();
+        let iter = sp.consume_iter();
+        let m = iter.count();
+        assert_eq!(m, 100);
+    }
+
+    #[test]
+    fn test_fill2() {
+        let sp = StreamParser::default();
+        let mut writer = sp.writer();
+
+        // write 4096 bytes without end of line
+        for _ in 0..4096 {
+            writer.write_all(b"0").unwrap();
+        }
+        // cannot push another byte
+        writer.write_all(b"0").unwrap_err();
+
+        // make sure it only produces a single item
+        let mut sp = writer.into_inner();
+        let iter = sp.consume_iter();
+        assert_eq!(iter.count(), 1);
+
+        // make sure the item is the "BufferFullWithoutMessageError"
+        let mut iter = sp.consume_iter();
+        let err = iter.next().unwrap().unwrap_err();
+        assert_eq!(err, MessageIteratorError::BufferFullWithoutMessageError);
     }
 }

@@ -3,7 +3,7 @@ use smallvec::SmallVec;
 mod parser;
 mod stream;
 
-pub use crate::stream::{LendingIterator, ParsingError, StreamParser};
+pub use crate::stream::{LendingIterator, MessageIteratorError, ParsingError, StreamParser};
 
 /// Note: Server sources (used for server-to-server communications) are not handled.
 #[derive(Debug, PartialEq, Eq)]
