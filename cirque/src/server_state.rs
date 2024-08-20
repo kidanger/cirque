@@ -137,11 +137,11 @@ enum LookupResult<'r> {
 pub struct ServerState {
     server_name: String,
     users: HashMap<UserID, RegisteredUser>,
-    connecting_users: HashMap<UserID, RegisteringUser>,
+    registering_users: HashMap<UserID, RegisteringUser>,
     channels: HashMap<ChannelID, Channel>,
     welcome_config: WelcomeConfig,
     motd_provider: Arc<dyn MOTDProvider + Send + Sync>,
-    pub(crate) password: Option<Vec<u8>>,
+    password: Option<Vec<u8>>,
 }
 
 impl ServerState {
@@ -157,7 +157,7 @@ impl ServerState {
         Self {
             server_name: server_name.to_owned(),
             users: Default::default(),
-            connecting_users: Default::default(),
+            registering_users: Default::default(),
             channels: Default::default(),
             welcome_config: welcome_config.to_owned(),
             motd_provider,
@@ -196,10 +196,133 @@ impl ServerState {
     }
 
     pub(crate) fn send_error(&self, user_id: UserID, error: ServerStateError) {
-        let user = &self.users[&user_id];
-        user.send(&server_to_client::Message::Err(error));
+        if let Some(user) = self.users.get(&user_id) {
+            user.send(&server_to_client::Message::Err(error));
+        } else if let Some(user) = self.registering_users.get(&user_id) {
+            user.send(&server_to_client::Message::Err(error));
+        } else {
+            panic!("user not found");
+        }
+    }
+}
+
+/// Functions for registering users
+impl ServerState {
+    pub(crate) fn ruser_connects(&mut self, user: RegisteringUser) {
+        self.registering_users.insert(user.user_id, user);
     }
 
+    pub(crate) fn ruser_sends_invalid_message(
+        &mut self,
+        user_id: UserID,
+        error: MessageDecodingError,
+    ) {
+        let user = &self.registering_users[&user_id];
+        let client = user.maybe_nickname();
+        if let Some(err) = ServerStateError::from_decoding_error_with_client(error, client) {
+            self.send_error(user_id, err);
+        }
+    }
+
+    pub(crate) fn ruser_uses_password(&mut self, user_id: UserID, password: &[u8]) {
+        let user = self.registering_users.get_mut(&user_id).unwrap();
+        user.password = Some(password.into());
+    }
+
+    pub(crate) fn ruser_uses_nick(
+        &mut self,
+        user_id: UserID,
+        nick: &str,
+    ) -> Result<(), ServerStateError> {
+        self.check_nickname(nick, None)?;
+        let user = self.registering_users.get_mut(&user_id).unwrap();
+        user.nickname = Some(nick.into());
+        Ok(())
+    }
+
+    pub(crate) fn ruser_uses_username(&mut self, user_id: UserID, username: &str) {
+        let user = self.registering_users.get_mut(&user_id).unwrap();
+        user.username = Some(username.into());
+    }
+
+    pub(crate) fn ruser_pings(&mut self, user_id: UserID, token: &[u8]) {
+        let user = &self.registering_users[&user_id];
+        let message = server_to_client::Message::Pong {
+            token: token.to_vec(),
+        };
+        user.send(&message);
+    }
+
+    pub(crate) fn ruser_sends_unknown_command(&mut self, user_id: UserID, command: &str) {
+        let user = &self.registering_users[&user_id];
+        let message = server_to_client::Message::Err(ServerStateError::UnknownCommand {
+            client: user.maybe_nickname(),
+            command: command.to_owned(),
+        });
+        user.send(&message);
+    }
+
+    pub(crate) fn ruser_sends_command_but_is_not_registered(&mut self, user_id: UserID) {
+        let user = &self.registering_users[&user_id];
+        let message = server_to_client::Message::Err(ServerStateError::NotRegistered {
+            client: user.maybe_nickname(),
+        });
+        user.send(&message);
+    }
+
+    pub(crate) fn check_ruser_registration_state(&mut self, user_id: UserID) -> Result<bool, ()> {
+        let user = &self.registering_users[&user_id];
+        if !user.is_ready() {
+            return Ok(false);
+        }
+
+        let user = self.registering_users.remove(&user_id).unwrap();
+
+        if user.password != self.password {
+            let message = server_to_client::Message::Err(ServerStateError::PasswdMismatch {
+                client: user.maybe_nickname(),
+            });
+            user.send(&message);
+            return Err(());
+        }
+
+        let user = RegisteredUser::from(user);
+        self.user_registers(user);
+        Ok(true)
+    }
+
+    pub(crate) fn ruser_disconnects_voluntarily(&mut self, user_id: UserID, reason: Option<&[u8]>) {
+        let user = &self.registering_users[&user_id];
+        let reason = reason.unwrap_or(b"Client Quit");
+
+        let message = server_to_client::Message::FatalError {
+            reason: (b"Closing Link: ".iter().copied())
+                .chain(self.server_name.as_bytes().iter().copied())
+                .chain(b" (".iter().copied())
+                .chain(reason.iter().copied())
+                .chain(b")".iter().copied())
+                .collect::<Vec<u8>>(),
+        };
+        user.send(&message);
+
+        self.registering_users.remove(&user_id);
+    }
+
+    pub(crate) fn ruser_disconnects_suddently(&mut self, user_id: UserID) {
+        let user = &self.registering_users[&user_id];
+        let reason = b"Disconnected suddently.";
+
+        let message = server_to_client::Message::FatalError {
+            reason: reason.to_vec(),
+        };
+        user.send(&message);
+
+        self.registering_users.remove(&user_id);
+    }
+}
+
+/// Functions for registered users
+impl ServerState {
     pub(crate) fn user_joins_channel(
         &mut self,
         user_id: UserID,
@@ -720,7 +843,7 @@ impl ServerState {
         Ok(())
     }
 
-    pub(crate) fn user_connects(&mut self, user: RegisteredUser) {
+    pub(crate) fn user_registers(&mut self, user: RegisteredUser) {
         let message = server_to_client::Message::Welcome {
             nickname: user.nickname.clone(),
             user_fullspec: user.fullspec(),

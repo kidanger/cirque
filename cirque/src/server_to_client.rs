@@ -118,6 +118,10 @@ impl Message {
     ) -> std::io::Result<()> {
         // TODO: we should make sure not to write more than 512 bytes including \r\n
         //       we could wrap the Stream into a MessageStream respecting this contraint
+        //       maybe have an arena of 512-buffers, and send these to mailboxes instead of
+        //       server_to_client::Message
+        //       this would enable doing less copies to construct Messages (reference field)
+        //          but might complicate error handling?
         match self {
             Message::Welcome {
                 nickname,

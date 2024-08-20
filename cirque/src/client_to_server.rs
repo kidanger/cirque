@@ -84,7 +84,7 @@ impl TryFrom<&cirque_parser::Message<'_>> for Message {
             }
             b"USER" => {
                 let user = str(opt(message.first_parameter_as_vec())?)?;
-                if params.len() < 4 || user.is_empty() {
+                if user.is_empty() || params.len() < 4 || params[3].is_empty() {
                     return Err(MessageDecodingError::NotEnoughParameters {
                         command: str(message.command().to_vec())?,
                     });
