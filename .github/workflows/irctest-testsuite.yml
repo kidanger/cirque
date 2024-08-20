@@ -1,7 +1,6 @@
-name: chirc-testsuite
+name: irctest-testsuite
 
 on: [push, pull_request]
-
 
 env:
   CARGO_TERM_COLOR: always
@@ -17,13 +16,10 @@ jobs:
 
     - name: Set up uv
       run: curl -LsSf https://astral.sh/uv/install.sh | sh
-    - name: "Set up Python"
+    - name: Set up Python
       uses: actions/setup-python@v5
       with:
         python-version: '3.10'
-    - name: Install pytest
-      run: uv pip install pytest pytest-html pytest-json
-
-    - name: test
+    - name: Run
       run: |
-        python scripts/launch_tu.py
+        bash tests/testsuite-irctest/run.sh

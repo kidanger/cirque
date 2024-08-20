@@ -5,4 +5,5 @@ members = [
     "cirque",
     "cirque-parser",
     "tests/testsuite-chirc/chirc-compat",
+    "tests/testsuite-irctest/irctest-compat",
 ]

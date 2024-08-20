@@ -442,6 +442,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "irctest-compat"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "cirque",
+ "clap",
+ "tokio",
+]
+
+[[package]]
 name = "is_terminal_polyfill"
 version = "1.70.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
