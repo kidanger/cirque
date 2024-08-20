@@ -49,8 +49,12 @@ pub enum ServerStateError {
     NotRegistered { client: String },
     #[error("461 {client} {command} :Not enough parameters")]
     NeedMoreParams { client: String, command: String },
+    #[error("472 {client} {modechar} :is unknown mode char to me")]
+    UnknownMode { client: String, modechar: String },
     #[error("476 {client} {channel} :Bad Channel Mask")]
     BadChanMask { client: String, channel: String },
+    #[error("482 {client} {channel} :You're not channel operator")]
+    ChanOpPrivsNeeded { client: String, channel: String },
 }
 
 impl ServerStateError {
@@ -239,13 +243,16 @@ impl ServerState {
         channel_name: &str,
     ) -> Result<(), ServerStateError> {
         let user = &self.users[&user_id];
-        validate_channel_name(user, channel_name)?;
+        //validate_channel_name(user, channel_name)?;
 
         let Some(channel) = self.channels.get_mut(channel_name) else {
-            return Err(ServerStateError::NoSuchChannel {
-                client: user.nickname.clone(),
+            // if the channel is invalid or does not exist, returns RPL_ENDOFNAMES (366)
+            let message = server_to_client::Message::EndOfNames {
+                nickname: user.nickname.clone(),
                 channel: channel_name.to_string(),
-            });
+            };
+            user.send(&message);
+            return Ok(());
         };
 
         let mut nicknames = vec![];
@@ -501,6 +508,43 @@ impl ServerState {
             mode: "+n".to_string(),
         };
         user.send(&message);
+    }
+
+    pub(crate) fn user_changes_channel_mode(
+        &mut self,
+        user_id: UserID,
+        channel_name: &str,
+        change: &str,
+    ) -> Result<(), ServerStateError> {
+        let user = &self.users[&user_id];
+        validate_channel_name(user, channel_name)?;
+
+        let Some(channel) = self.channels.get_mut(channel_name) else {
+            return Err(ServerStateError::NoSuchChannel {
+                client: user.nickname.clone(),
+                channel: channel_name.to_string(),
+            });
+        };
+
+        if !channel.users[&user_id].is_op() {
+            return Err(ServerStateError::ChanOpPrivsNeeded {
+                client: user.nickname.clone(),
+                channel: channel_name.to_string(),
+            });
+        }
+
+        channel.mode = match change {
+            "+s" => channel.mode.with_secret(),
+            "-s" => channel.mode.without_secret(),
+            _ => {
+                return Err(ServerStateError::UnknownMode {
+                    client: user.nickname.clone(),
+                    modechar: change.to_string(),
+                });
+            }
+        };
+
+        Ok(())
     }
 
     pub(crate) fn user_sets_topic(

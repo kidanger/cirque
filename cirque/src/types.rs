@@ -130,6 +130,20 @@ impl ChannelMode {
     pub fn is_secret(&self) -> bool {
         self.secret
     }
+
+    pub(crate) fn with_secret(&self) -> Self {
+        Self {
+            secret: true,
+            ..self.clone()
+        }
+    }
+
+    pub(crate) fn without_secret(&self) -> Self {
+        Self {
+            secret: false,
+            ..self.clone()
+        }
+    }
 }
 
 #[derive(Debug, Default)]

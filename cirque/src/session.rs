@@ -151,6 +151,13 @@ impl RegisteredState {
                 client_to_server::Message::AskModeChannel(channel) => {
                     server_state.user_asks_channel_mode(self.user_id, &channel);
                 }
+                client_to_server::Message::ChangeModeChannel(channel, change) => {
+                    if let Err(err) =
+                        server_state.user_changes_channel_mode(self.user_id, &channel, &change)
+                    {
+                        server_state.send_error(self.user_id, err);
+                    }
+                }
                 client_to_server::Message::Ping(token) => {
                     server_state.user_pings(self.user_id, &token);
                 }

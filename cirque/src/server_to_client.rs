@@ -31,6 +31,11 @@ pub enum Message {
         nickname: String,
         names: Vec<(ChannelID, ChannelMode, Vec<(String, ChannelUserMode)>)>,
     },
+    /// only used on NAMES command when the channel is invalid or does not exist
+    EndOfNames {
+        nickname: String,
+        channel: String,
+    },
     /// reply to a GetTopic command or Join command
     RplTopic {
         nickname: String,
@@ -193,6 +198,16 @@ impl Message {
                     stream.write_all(channel.as_bytes()).await?;
                     stream.write_all(b" :End of NAMES list\r\n").await?;
                 }
+            }
+            Message::EndOfNames { nickname, channel } => {
+                stream.write_all(b"\r\n").await?;
+                stream.write_all(b":").await?;
+                stream.write_all(context.server_name.as_bytes()).await?;
+                stream.write_all(b" 366 ").await?;
+                stream.write_all(nickname.as_bytes()).await?;
+                stream.write_all(b" ").await?;
+                stream.write_all(channel.as_bytes()).await?;
+                stream.write_all(b" :End of NAMES list\r\n").await?;
             }
             Message::RplTopic {
                 nickname,

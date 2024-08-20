@@ -35,6 +35,7 @@ pub(crate) enum Message {
     GetTopic(ChannelID),
     SetTopic(ChannelID, Vec<u8>),
     AskModeChannel(ChannelID),
+    ChangeModeChannel(ChannelID, String),
     PrivMsg(String, Vec<u8>),
     Notice(String, Vec<u8>),
     Part(Vec<ChannelID>, Option<Vec<u8>>),
@@ -123,7 +124,15 @@ impl TryFrom<&cirque_parser::Message<'_>> for Message {
                     None => Message::GetTopic(target),
                 }
             }
-            b"MODE" => Message::AskModeChannel(str(opt(message.first_parameter_as_vec())?)?),
+            b"MODE" => {
+                // for now we will assume that the target is a channel
+                let target = str(opt(message.first_parameter_as_vec())?)?;
+                if let Some(change) = params.get(1) {
+                    Message::ChangeModeChannel(target, str(change.to_vec())?)
+                } else {
+                    Message::AskModeChannel(target)
+                }
+            }
             b"PRIVMSG" => {
                 let target =
                     message

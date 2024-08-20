@@ -11,6 +11,8 @@ uv pip install -r irctest/requirements.txt
 
 cargo build --bin irctest-compat
 
-PYTHONPATH=tests/testsuite-irctest/ pytest -v --controller cirque irctest/irctest/server_tests/pingpong.py -k 'not Ergo and not IRCv3'
-PYTHONPATH=tests/testsuite-irctest/ pytest -v --controller cirque irctest/irctest/server_tests/join.py -k 'not Ergo and not IRCv3'
-PYTHONPATH=tests/testsuite-irctest/ pytest -v --controller cirque irctest/irctest/server_tests/part.py -k 'not Ergo and not IRCv3'
+filters="not Ergo and not IRCv3 and not deprecated"
+PYTHONPATH=tests/testsuite-irctest/ pytest -v -n 3 --controller cirque irctest/irctest/server_tests/pingpong.py -k "$filters"
+PYTHONPATH=tests/testsuite-irctest/ pytest -v -n 3 --controller cirque irctest/irctest/server_tests/join.py -k "$filters"
+PYTHONPATH=tests/testsuite-irctest/ pytest -v -n 3 --controller cirque irctest/irctest/server_tests/part.py -k "$filters"
+PYTHONPATH=tests/testsuite-irctest/ pytest -v -n 3 --controller cirque irctest/irctest/server_tests/names.py -k "$filters"
