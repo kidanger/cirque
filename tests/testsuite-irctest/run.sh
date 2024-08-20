@@ -7,7 +7,7 @@ if [ ! -d irctest ]; then
     cd irctest && git reset --hard d202e440bb71139e7c10e25bd04660866371c686 && cd ..
 fi
 
-uv pip install -r irctest/requirements.txt
+uv pip install -r irctest/requirements.txt pytest-xdist
 
 cargo build --bin irctest-compat
 
