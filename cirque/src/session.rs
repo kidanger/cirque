@@ -122,7 +122,9 @@ impl RegisteredState {
             match message {
                 client_to_server::Message::Join(channels) => {
                     for channel in channels {
-                        server_state.user_joins_channel(self.user_id, &channel);
+                        if let Err(err) = server_state.user_joins_channel(self.user_id, &channel) {
+                            server_state.send_error(self.user_id, err);
+                        }
                     }
                 }
                 client_to_server::Message::Nick(nick) => {

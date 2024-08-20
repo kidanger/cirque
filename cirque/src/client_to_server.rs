@@ -99,7 +99,7 @@ impl TryFrom<&cirque_parser::Message<'_>> for Message {
                         command: str(message.command().to_vec())?,
                     })?
                     .split(|&c| c == b',')
-                    .flat_map(|s| String::from_utf8(s.to_owned()))
+                    .flat_map(|s| str(s.to_owned()))
                     .collect::<Vec<_>>();
                 Message::Join(channels)
             }

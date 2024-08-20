@@ -3,7 +3,6 @@ use std::ops::Div;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use cirque_parser::Message;
 use thiserror::Error;
 use tokio::io::AsyncWriteExt;
 
@@ -50,6 +49,8 @@ pub enum ServerStateError {
     NotRegistered { client: String },
     #[error("461 {client} {command} :Not enough parameters")]
     NeedMoreParams { client: String, command: String },
+    #[error("476 {client} {channel} :Bad Channel Mask")]
+    BadChanMask { client: String, channel: String },
 }
 
 impl ServerStateError {
@@ -178,11 +179,24 @@ impl ServerState {
         user.send(&server_to_client::Message::Err(error));
     }
 
-    pub(crate) fn user_joins_channel(&mut self, user_id: UserID, channel_name: &str) {
+    pub(crate) fn user_joins_channel(
+        &mut self,
+        user_id: UserID,
+        channel_name: &str,
+    ) -> Result<(), ServerStateError> {
+        let user = &self.users[&user_id];
+
+        if channel_name.is_empty() || !channel_name.starts_with('#') {
+            return Err(ServerStateError::BadChanMask {
+                client: user.nickname.to_string(),
+                channel: channel_name.to_string(),
+            });
+        }
+
         let channel = self.channels.entry(channel_name.to_owned()).or_default();
 
         if channel.users.contains(&user_id) {
-            return;
+            return Ok(());
         }
 
         channel.users.insert(user_id);
@@ -201,8 +215,6 @@ impl ServerState {
         }
 
         // send topic and names to the joiner
-        let user = &self.users[&user_id];
-
         if channel.topic.is_valid() {
             let message = server_to_client::Message::RplTopic {
                 nickname: user.nickname.to_owned(),
@@ -217,6 +229,8 @@ impl ServerState {
             names: vec![(channel_name.to_owned(), nicknames)],
         };
         user.send(&message);
+
+        Ok(())
     }
 
     pub(crate) fn user_leaves_channel(
