@@ -3,7 +3,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use crate::server_state::SharedServerState;
 use crate::transport::AnyStream;
 use crate::types::{RegisteringUser, UserID};
-use crate::{client_to_server, server_to_client, ServerState};
+use crate::{client_to_server, ServerState};
 use cirque_parser::{LendingIterator, MessageIteratorError, StreamParser};
 
 #[derive(Debug)]
@@ -232,9 +232,6 @@ impl Session {
     }
 
     pub(crate) async fn run(mut self, server_state: SharedServerState) -> anyhow::Result<()> {
-        let message_context = server_to_client::MessageContext {
-            server_name: server_state.lock().unwrap().server_name().to_owned(),
-        };
         let mut stream_parser = StreamParser::default();
 
         let (user, mut rx) = RegisteringUser::new();
@@ -273,15 +270,16 @@ impl Session {
                         stream_parser.clear();
                     }
                 },
-                Some(message) = rx.recv() => {
-                    // some tests from irctest requires buffered messages unfortunately
+                Some(msg) = rx.recv() => {
                     let mut buf = std::io::Cursor::new(Vec::<u8>::new());
-                    message.write_to(&mut buf, &message_context).await?;
+                    std::io::Write::write_all(&mut buf, &msg)?;
+
                     // it's likely that there are more messages available, we bundle them all
                     // potentially in a single tcp package
                     while let Ok(msg) = rx.try_recv() {
-                        msg.write_to(&mut buf, &message_context).await?;
+                        std::io::Write::write_all(&mut buf, &msg)?;
                     }
+
                     self.stream.write_all(&buf.into_inner()).await?;
                 }
             }
@@ -291,7 +289,7 @@ impl Session {
             // the client sent a QUIT, handle the disconnection gracefully
             let mut buf = std::io::Cursor::new(Vec::<u8>::new());
             while let Ok(msg) = rx.try_recv() {
-                msg.write_to(&mut buf, &message_context).await?;
+                std::io::Write::write_all(&mut buf, &msg)?;
             }
             // TODO: maybe tolerate a timeout to send the last messages and then force quit
             self.stream.write_all(&buf.into_inner()).await?;

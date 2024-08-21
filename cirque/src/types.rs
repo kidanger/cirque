@@ -1,8 +1,11 @@
 use std::collections::HashMap;
 
-use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
+use tokio::sync::mpsc::UnboundedReceiver;
 
-use crate::{server_state::ServerStateError, server_to_client};
+use crate::{
+    server_state::ServerStateError,
+    server_to_client::{self, MessageContext},
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct UserID(uuid::Uuid);
@@ -22,12 +25,13 @@ pub struct RegisteredUser {
     pub(crate) username: String,
     pub(crate) realname: Vec<u8>,
     pub(crate) away_message: Option<Vec<u8>>,
-    mailbox: tokio::sync::mpsc::UnboundedSender<server_to_client::Message>,
+    // maybe this shouldn't be in User
+    mailbox: tokio::sync::mpsc::UnboundedSender<Vec<u8>>,
 }
 
 impl RegisteredUser {
-    pub(crate) fn send(&self, message: &server_to_client::Message) {
-        let _ = self.mailbox.send(message.clone());
+    pub(crate) fn send(&self, message: &server_to_client::Message, context: &MessageContext) {
+        crate::message_pool::MessagePool::ingest_into_channel(message, &self.mailbox, context);
     }
 
     pub(crate) fn shown_hostname(&self) -> &str {
@@ -55,11 +59,11 @@ pub(crate) struct RegisteringUser {
     pub(crate) username: Option<String>,
     pub(crate) realname: Option<Vec<u8>>,
     pub(crate) password: Option<Vec<u8>>,
-    mailbox: UnboundedSender<server_to_client::Message>,
+    mailbox: tokio::sync::mpsc::UnboundedSender<Vec<u8>>,
 }
 
 impl RegisteringUser {
-    pub(crate) fn new() -> (Self, UnboundedReceiver<server_to_client::Message>) {
+    pub(crate) fn new() -> (Self, UnboundedReceiver<Vec<u8>>) {
         let user_id = UserID::generate();
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         let user = Self {
@@ -73,8 +77,8 @@ impl RegisteringUser {
         (user, rx)
     }
 
-    pub(crate) fn send(&self, message: &server_to_client::Message) {
-        let _ = self.mailbox.send(message.clone());
+    pub(crate) fn send(&self, message: &server_to_client::Message, context: &MessageContext) {
+        crate::message_pool::MessagePool::ingest_into_channel(message, &self.mailbox, &context);
     }
 
     pub(crate) fn maybe_nickname(&self) -> String {

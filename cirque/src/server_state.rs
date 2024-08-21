@@ -4,11 +4,9 @@ use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use thiserror::Error;
-use tokio::io::AsyncWriteExt;
 
 use crate::client_to_server::{ListFilter, ListOperation, ListOption, MessageDecodingError};
-use crate::server_to_client::{self, ChannelInfo, UserhostReply, WhoReply};
-use crate::transport;
+use crate::server_to_client::{self, ChannelInfo, MessageContext, UserhostReply, WhoReply};
 use crate::types::RegisteredUser;
 use crate::types::RegisteringUser;
 use crate::types::UserID;
@@ -68,27 +66,25 @@ pub enum ServerStateError {
 }
 
 impl ServerStateError {
-    pub(crate) async fn write_to(
-        &self,
-        stream: &mut impl transport::Stream,
-    ) -> std::io::Result<()> {
+    pub(crate) fn write_to(&self, stream: &mut std::io::Cursor<Vec<u8>>) -> std::io::Result<()> {
+        use std::io::Write;
         match self {
             ServerStateError::UnknownError {
                 client,
                 command,
                 info,
             } => {
-                stream.write_all(b"400 {client} ____ :{info}").await?;
-                stream.write_all(client.as_bytes()).await?;
-                stream.write_all(b" ").await?;
-                stream.write_all(command).await?;
-                stream.write_all(b" :").await?;
-                stream.write_all(info.as_bytes()).await?;
+                stream.write_all(b"400 {client} ____ :{info}");
+                stream.write_all(client.as_bytes());
+                stream.write_all(b" ");
+                stream.write_all(command);
+                stream.write_all(b" :");
+                stream.write_all(info.as_bytes());
             }
             m => {
                 // NOTE: later we can optimize to avoid the to_string call
                 // currently it prevents us from using Vec<u8> in ServerStateError
-                stream.write_all(m.to_string().as_bytes()).await?;
+                stream.write_all(m.to_string().as_bytes());
             }
         }
         Ok(())
@@ -144,6 +140,7 @@ pub struct ServerState {
     welcome_config: WelcomeConfig,
     motd_provider: Arc<dyn MOTDProvider + Send + Sync>,
     password: Option<Vec<u8>>,
+    message_context: MessageContext,
 }
 
 impl ServerState {
@@ -164,6 +161,9 @@ impl ServerState {
             welcome_config: welcome_config.to_owned(),
             motd_provider,
             password,
+            message_context: server_to_client::MessageContext {
+                server_name: server_name.to_string(),
+            },
         }
     }
 
@@ -227,9 +227,15 @@ impl ServerState {
 
     pub(crate) fn send_error(&self, user_id: UserID, error: ServerStateError) {
         if let Some(user) = self.users.get(&user_id) {
-            user.send(&server_to_client::Message::Err(error));
+            user.send(
+                &server_to_client::Message::Err(error),
+                &self.message_context,
+            );
         } else if let Some(user) = self.registering_users.get(&user_id) {
-            user.send(&server_to_client::Message::Err(error));
+            user.send(
+                &server_to_client::Message::Err(error),
+                &self.message_context,
+            );
         } else {
             panic!("user not found");
         }
@@ -281,7 +287,7 @@ impl ServerState {
         let message = server_to_client::Message::Pong {
             token: token.to_vec(),
         };
-        user.send(&message);
+        user.send(&message, &self.message_context);
     }
 
     pub(crate) fn ruser_sends_unknown_command(&mut self, user_id: UserID, command: &str) {
@@ -290,7 +296,7 @@ impl ServerState {
             client: user.maybe_nickname(),
             command: command.to_owned(),
         });
-        user.send(&message);
+        user.send(&message, &self.message_context);
     }
 
     pub(crate) fn ruser_sends_command_but_is_not_registered(&mut self, user_id: UserID) {
@@ -298,7 +304,7 @@ impl ServerState {
         let message = server_to_client::Message::Err(ServerStateError::NotRegistered {
             client: user.maybe_nickname(),
         });
-        user.send(&message);
+        user.send(&message, &self.message_context);
     }
 
     pub(crate) fn check_ruser_registration_state(&mut self, user_id: UserID) -> Result<bool, ()> {
@@ -313,7 +319,7 @@ impl ServerState {
             let message = server_to_client::Message::Err(ServerStateError::PasswdMismatch {
                 client: user.maybe_nickname(),
             });
-            user.send(&message);
+            user.send(&message, &self.message_context);
             return Err(());
         }
 
@@ -334,7 +340,7 @@ impl ServerState {
                 .chain(b")".iter().copied())
                 .collect::<Vec<u8>>(),
         };
-        user.send(&message);
+        user.send(&message, &self.message_context);
 
         self.registering_users.remove(&user_id);
     }
@@ -346,7 +352,7 @@ impl ServerState {
         let message = server_to_client::Message::FatalError {
             reason: reason.to_vec(),
         };
-        user.send(&message);
+        user.send(&message, &self.message_context);
 
         self.registering_users.remove(&user_id);
     }
@@ -386,7 +392,7 @@ impl ServerState {
         for (user_id, user_mode) in &channel.users {
             let user: &RegisteredUser = &self.users[user_id];
             nicknames.push((user.nickname.clone(), user_mode.clone()));
-            user.send(&message);
+            user.send(&message, &self.message_context);
         }
 
         // send topic and names to the joiner
@@ -396,14 +402,14 @@ impl ServerState {
                 channel: channel_name.to_owned(),
                 topic: Some(channel.topic.clone()),
             };
-            user.send(&message);
+            user.send(&message, &self.message_context);
         }
 
         let message = server_to_client::Message::Names {
             nickname: user.nickname.clone(),
             names: vec![(channel_name.to_owned(), channel.mode.clone(), nicknames)],
         };
-        user.send(&message);
+        user.send(&message, &self.message_context);
 
         Ok(())
     }
@@ -421,7 +427,7 @@ impl ServerState {
                 nickname: user.nickname.clone(),
                 channel: channel_name.to_string(),
             };
-            user.send(&message);
+            user.send(&message, &self.message_context);
             return Ok(());
         };
 
@@ -430,7 +436,7 @@ impl ServerState {
                 nickname: user.nickname.clone(),
                 channel: channel_name.to_string(),
             };
-            user.send(&message);
+            user.send(&message, &self.message_context);
             return Ok(());
         }
 
@@ -444,7 +450,7 @@ impl ServerState {
             nickname: user.nickname.clone(),
             names: vec![(channel_name.to_owned(), channel.mode.clone(), nicknames)],
         };
-        user.send(&message);
+        user.send(&message, &self.message_context);
         Ok(())
     }
 
@@ -478,7 +484,7 @@ impl ServerState {
         };
         for user_id in channel.users.keys() {
             let user = &self.users[user_id];
-            user.send(&message);
+            user.send(&message, &self.message_context);
         }
 
         channel.users.remove(&user_id);
@@ -503,7 +509,7 @@ impl ServerState {
                 channel.users.remove(&user_id);
                 for user_id in channel.users.keys() {
                     let user = &self.users[user_id];
-                    user.send(&message);
+                    user.send(&message, &self.message_context);
                 }
             }
         }
@@ -516,7 +522,7 @@ impl ServerState {
                 .chain(b")".iter().copied())
                 .collect::<Vec<u8>>(),
         };
-        user.send(&message);
+        user.send(&message, &self.message_context);
 
         self.channels.retain(|_, channel| !channel.users.is_empty());
         self.users.remove(&user_id);
@@ -535,7 +541,7 @@ impl ServerState {
                 channel.users.remove(&user_id);
                 for user_id in channel.users.keys() {
                     let user = &self.users[user_id];
-                    user.send(&message);
+                    user.send(&message, &self.message_context);
                 }
             }
         }
@@ -543,7 +549,7 @@ impl ServerState {
         let message = server_to_client::Message::FatalError {
             reason: reason.to_vec(),
         };
-        user.send(&message);
+        user.send(&message, &self.message_context);
 
         self.channels.retain(|_, channel| !channel.users.is_empty());
         self.users.remove(&user_id);
@@ -580,7 +586,7 @@ impl ServerState {
 
         for user_id in users {
             let user = &self.users[&user_id];
-            user.send(&message);
+            user.send(&message, &self.message_context);
         }
 
         Ok(())
@@ -607,7 +613,7 @@ impl ServerState {
             let message = server_to_client::Message::Err(ServerStateError::NoTextToSend {
                 client: user.nickname.clone(),
             });
-            user.send(&message);
+            user.send(&message, &self.message_context);
             return;
         }
 
@@ -616,7 +622,7 @@ impl ServerState {
                 client: user.nickname.to_string(),
                 target: target.to_string(),
             });
-            user.send(&message);
+            user.send(&message, &self.message_context);
             return;
         };
 
@@ -634,7 +640,7 @@ impl ServerState {
                             client: user.nickname.to_string(),
                             channel: target.to_string(),
                         });
-                    user.send(&message);
+                    user.send(&message, &self.message_context);
                     return;
                 }
 
@@ -643,17 +649,17 @@ impl ServerState {
                     .keys()
                     .filter(|&uid| *uid != user_id)
                     .flat_map(|u| self.users.get(u))
-                    .for_each(|u| u.send(&message));
+                    .for_each(|u| u.send(&message, &self.message_context));
             }
             LookupResult::RegisteredUser(target_user) => {
-                target_user.send(&message);
+                target_user.send(&message, &self.message_context);
                 if let Some(away_message) = &target_user.away_message {
                     let message = server_to_client::Message::RplAway {
                         nickname: user.nickname.clone(),
                         target_nickname: target_user.nickname.clone(),
                         away_message: away_message.clone(),
                     };
-                    user.send(&message);
+                    user.send(&message, &self.message_context);
                 }
             }
         }
@@ -690,10 +696,10 @@ impl ServerState {
                     .keys()
                     .filter(|&uid| *uid != user_id)
                     .flat_map(|u| self.users.get(u))
-                    .for_each(|u| u.send(&message));
+                    .for_each(|u| u.send(&message, &self.message_context));
             }
             LookupResult::RegisteredUser(target_user) => {
-                target_user.send(&message);
+                target_user.send(&message, &self.message_context);
             }
         }
     }
@@ -719,7 +725,7 @@ impl ServerState {
             mode: channel.mode.clone(),
         };
 
-        user.send(&message);
+        user.send(&message, &self.message_context);
         Ok(())
     }
 
@@ -786,7 +792,7 @@ impl ServerState {
                     };
                     for user_id in channel.users.keys() {
                         let user = &self.users[user_id];
-                        user.send(&message);
+                        user.send(&message, &self.message_context);
                     }
                 }
             }
@@ -809,7 +815,7 @@ impl ServerState {
                     };
                     for user_id in channel.users.keys() {
                         let user = &self.users[user_id];
-                        user.send(&message);
+                        user.send(&message, &self.message_context);
                     }
                 }
             }
@@ -857,7 +863,7 @@ impl ServerState {
             .users
             .keys()
             .flat_map(|u| self.users.get(u))
-            .for_each(|u| u.send(message));
+            .for_each(|u| u.send(message, &self.message_context));
         Ok(())
     }
 
@@ -892,7 +898,7 @@ impl ServerState {
                 None
             },
         };
-        user.send(&message);
+        user.send(&message, &self.message_context);
         Ok(())
     }
 
@@ -902,7 +908,7 @@ impl ServerState {
             user_fullspec: user.fullspec(),
             welcome_config: self.welcome_config.clone(),
         };
-        user.send(&message);
+        user.send(&message, &self.message_context);
 
         let message = server_to_client::Message::LUsers {
             nickname: user.nickname.to_string(),
@@ -913,13 +919,13 @@ impl ServerState {
             n_other_servers: 0,
             extra_info: false,
         };
-        user.send(&message);
+        user.send(&message, &self.message_context);
 
         let message = server_to_client::Message::MOTD {
             nickname: user.nickname.to_string(),
             motd: self.motd_provider.motd(),
         };
-        user.send(&message);
+        user.send(&message, &self.message_context);
 
         self.users.insert(user.user_id, user);
     }
@@ -929,7 +935,7 @@ impl ServerState {
         let message = server_to_client::Message::Pong {
             token: token.to_vec(),
         };
-        user.send(&message);
+        user.send(&message, &self.message_context);
     }
 
     pub(crate) fn user_sends_unknown_command(&mut self, user_id: UserID, command: &str) {
@@ -938,7 +944,7 @@ impl ServerState {
             client: user.nickname.clone(),
             command: command.to_owned(),
         });
-        user.send(&message);
+        user.send(&message, &self.message_context);
     }
 
     pub(crate) fn user_sends_invalid_message(
@@ -959,7 +965,7 @@ impl ServerState {
             nickname: user.nickname.clone(),
             motd: self.motd_provider.motd(),
         };
-        user.send(&message);
+        user.send(&message, &self.message_context);
     }
 
     fn filter_channel(&self, list_option: &ListOption, channel: &Channel) -> bool {
@@ -1037,7 +1043,7 @@ impl ServerState {
             client: user.nickname.clone(),
             infos: channel_info_list,
         };
-        user.send(&message);
+        user.send(&message, &self.message_context);
     }
 
     pub(crate) fn user_indicates_away(&mut self, user_id: UserID, away_message: Option<&[u8]>) {
@@ -1053,7 +1059,7 @@ impl ServerState {
                 nickname: user.nickname.clone(),
             }
         };
-        user.send(&message);
+        user.send(&message, &self.message_context);
     }
 
     pub(crate) fn user_asks_userhosts(&self, user_id: UserID, nicknames: &[String]) {
@@ -1074,7 +1080,7 @@ impl ServerState {
             nickname: user.nickname.clone(),
             info: replies,
         };
-        user.send(&message);
+        user.send(&message, &self.message_context);
     }
 
     pub(crate) fn user_asks_whois(&self, user_id: UserID, nickname: &str) {
@@ -1084,12 +1090,12 @@ impl ServerState {
                 client: user.nickname.to_string(),
                 target: nickname.to_string(),
             });
-            user.send(&message);
+            user.send(&message, &self.message_context);
             let message = server_to_client::Message::RplEndOfWhois {
                 client: user.nickname.to_string(),
                 target_nickname: nickname.to_string(),
             };
-            user.send(&message);
+            user.send(&message, &self.message_context);
             return;
         };
 
@@ -1101,7 +1107,7 @@ impl ServerState {
             username: target_user.username.clone(),
             realname: target_user.realname.clone(),
         };
-        user.send(&message);
+        user.send(&message, &self.message_context);
     }
 
     pub(crate) fn user_asks_who(&self, user_id: UserID, mask: &str) {
@@ -1165,7 +1171,7 @@ impl ServerState {
             mask: mask.into(),
             replies,
         };
-        user.send(&message);
+        user.send(&message, &self.message_context);
     }
 
     pub(crate) fn user_asks_lusers(&self, user_id: UserID) {
@@ -1180,7 +1186,7 @@ impl ServerState {
             n_other_servers: 0,
             extra_info: true,
         };
-        user.send(&message);
+        user.send(&message, &self.message_context);
     }
 }
 
