@@ -19,6 +19,5 @@ PYTHONPATH=tests/testsuite-irctest/ pytest -v -n 3 --controller cirque irctest/i
 PYTHONPATH=tests/testsuite-irctest/ pytest -v -n 3 --controller cirque irctest/irctest/server_tests/topic.py -k "$filters"
 PYTHONPATH=tests/testsuite-irctest/ pytest -v -n 3 --controller cirque irctest/irctest/server_tests/channel.py -k "$filters"
 PYTHONPATH=tests/testsuite-irctest/ pytest -v -n 3 --controller cirque irctest/irctest/server_tests/chmodes/operator.py -k "$filters"
-
-# needs WHOIS
-#PYTHONPATH=tests/testsuite-irctest/ pytest -v -n 3 --controller cirque irctest/irctest/server_tests/connection_registration.py -k "$filters"
+PYTHONPATH=tests/testsuite-irctest/ pytest -v -n 3 --controller cirque irctest/irctest/server_tests/away.py -k "$filters"
+PYTHONPATH=tests/testsuite-irctest/ pytest -v -n 3 --controller cirque irctest/irctest/server_tests/connection_registration.py -k "$filters"

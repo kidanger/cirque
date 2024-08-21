@@ -245,9 +245,10 @@ impl ServerState {
         Ok(())
     }
 
-    pub(crate) fn ruser_uses_username(&mut self, user_id: UserID, username: &str) {
+    pub(crate) fn ruser_uses_username(&mut self, user_id: UserID, username: &str, realname: &[u8]) {
         let user = self.registering_users.get_mut(&user_id).unwrap();
         user.username = Some(username.into());
+        user.realname = Some(realname.into());
     }
 
     pub(crate) fn ruser_pings(&mut self, user_id: UserID, token: &[u8]) {
@@ -1027,7 +1028,7 @@ impl ServerState {
         user.send(&message);
     }
 
-    pub(crate) fn user_ask_userhosts(&self, user_id: UserID, nicknames: &[String]) {
+    pub(crate) fn user_asks_userhosts(&self, user_id: UserID, nicknames: &[String]) {
         let user = &self.users[&user_id];
         let mut replies = vec![];
         for nick in nicknames {
@@ -1044,6 +1045,28 @@ impl ServerState {
         let message = server_to_client::Message::RplUserhost {
             nickname: user.nickname.clone(),
             info: replies,
+        };
+        user.send(&message);
+    }
+
+    pub(crate) fn user_asks_whois(&self, user_id: UserID, nickname: &str) {
+        let user = &self.users[&user_id];
+        let Some(target_user) = self.users.values().find(|&u| u.nickname == nickname) else {
+            let message = server_to_client::Message::Err(ServerStateError::NoSuchNick {
+                client: user.nickname.to_string(),
+                target: nickname.to_string(),
+            });
+            user.send(&message);
+            return;
+        };
+
+        let message = server_to_client::Message::RplWhois {
+            client: user.nickname.clone(),
+            target_nickname: nickname.into(),
+            away_message: target_user.away_message.clone(),
+            hostname: target_user.shown_hostname().into(),
+            username: target_user.username.clone(),
+            realname: target_user.realname.clone(),
         };
         user.send(&message);
     }

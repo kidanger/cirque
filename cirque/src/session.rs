@@ -39,8 +39,8 @@ impl RegisteringState {
                     server_state.send_error(self.user_id, err);
                 }
             }
-            client_to_server::Message::User(username) => {
-                server_state.ruser_uses_username(self.user_id, &username);
+            client_to_server::Message::User(username, realname) => {
+                server_state.ruser_uses_username(self.user_id, &username, &realname);
             }
             client_to_server::Message::Quit(reason) => {
                 server_state.ruser_disconnects_voluntarily(self.user_id, reason.as_deref());
@@ -165,7 +165,10 @@ impl RegisteredState {
                 server_state.user_indicates_away(self.user_id, away_message.as_deref());
             }
             client_to_server::Message::Userhost(nicknames) => {
-                server_state.user_ask_userhosts(self.user_id, &nicknames);
+                server_state.user_asks_userhosts(self.user_id, &nicknames);
+            }
+            client_to_server::Message::Whois(nickname) => {
+                server_state.user_asks_whois(self.user_id, &nickname);
             }
             client_to_server::Message::Unknown(command) => {
                 server_state.user_sends_unknown_command(self.user_id, &command);

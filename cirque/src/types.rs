@@ -20,6 +20,7 @@ pub struct RegisteredUser {
     pub(crate) user_id: UserID,
     pub(crate) nickname: String,
     pub(crate) username: String,
+    pub(crate) realname: Vec<u8>,
     pub(crate) away_message: Option<Vec<u8>>,
     mailbox: tokio::sync::mpsc::UnboundedSender<server_to_client::Message>,
 }
@@ -52,6 +53,7 @@ pub(crate) struct RegisteringUser {
     pub(crate) user_id: UserID,
     pub(crate) nickname: Option<String>,
     pub(crate) username: Option<String>,
+    pub(crate) realname: Option<Vec<u8>>,
     pub(crate) password: Option<Vec<u8>>,
     mailbox: UnboundedSender<server_to_client::Message>,
 }
@@ -64,6 +66,7 @@ impl RegisteringUser {
             user_id,
             nickname: None,
             username: None,
+            realname: None,
             password: None,
             mailbox: tx,
         };
@@ -90,6 +93,7 @@ impl From<RegisteringUser> for RegisteredUser {
             user_id: value.user_id,
             nickname: value.nickname.unwrap(),
             username: value.username.unwrap(),
+            realname: value.realname.unwrap_or_default(),
             away_message: None,
             mailbox: value.mailbox,
         }

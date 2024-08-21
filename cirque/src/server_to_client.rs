@@ -120,6 +120,14 @@ pub enum Message {
         nickname: String,
         info: Vec<UserhostReply>,
     },
+    RplWhois {
+        client: String,
+        target_nickname: String,
+        away_message: Option<Vec<u8>>,
+        hostname: String,
+        username: String,
+        realname: Vec<u8>,
+    },
     Quit {
         user_fullspec: String,
         reason: Vec<u8>,
@@ -580,6 +588,49 @@ impl Message {
                         stream.write_all(b" ").await?;
                     }
                 }
+                stream.write_all(b"\r\n").await?;
+            }
+            Message::RplWhois {
+                client,
+                target_nickname,
+                away_message,
+                hostname,
+                username,
+                realname,
+            } => {
+                if let Some(away_message) = away_message {
+                    stream.write_all(b":").await?;
+                    stream.write_all(context.server_name.as_bytes()).await?;
+                    stream.write_all(b" 301 ").await?;
+                    stream.write_all(client.as_bytes()).await?;
+                    stream.write_all(b" ").await?;
+                    stream.write_all(target_nickname.as_bytes()).await?;
+                    stream.write_all(b" :").await?;
+                    stream.write_all(away_message).await?;
+                    stream.write_all(b"\r\n").await?;
+                }
+
+                stream.write_all(b":").await?;
+                stream.write_all(context.server_name.as_bytes()).await?;
+                stream.write_all(b" 311 ").await?;
+                stream.write_all(client.as_bytes()).await?;
+                stream.write_all(b" ").await?;
+                stream.write_all(target_nickname.as_bytes()).await?;
+                stream.write_all(b" ").await?;
+                stream.write_all(username.as_bytes()).await?;
+                stream.write_all(b" ").await?;
+                stream.write_all(hostname.as_bytes()).await?;
+                stream.write_all(b" * :").await?;
+                stream.write_all(realname).await?;
+                stream.write_all(b"\r\n").await?;
+
+                stream.write_all(b":").await?;
+                stream.write_all(context.server_name.as_bytes()).await?;
+                stream.write_all(b" 318 ").await?;
+                stream.write_all(client.as_bytes()).await?;
+                stream.write_all(b" ").await?;
+                stream.write_all(target_nickname.as_bytes()).await?;
+                stream.write_all(b" :End of /WHOIS list").await?;
                 stream.write_all(b"\r\n").await?;
             }
             Message::Quit {

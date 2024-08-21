@@ -27,7 +27,7 @@ pub(crate) struct ListOption {
 pub(crate) enum Message {
     Cap,
     Nick(String),
-    User(String),
+    User(String, Vec<u8>),
     Pass(Vec<u8>),
     Ping(Vec<u8>),
     Pong(Vec<u8>),
@@ -46,6 +46,7 @@ pub(crate) enum Message {
     MOTD(),
     Away(Option<Vec<u8>>),
     Userhost(Vec<String>),
+    Whois(String),
     Quit(Option<Vec<u8>>),
     Unknown(String),
 }
@@ -91,7 +92,8 @@ impl TryFrom<&cirque_parser::Message<'_>> for Message {
                         command: str(message.command().to_vec())?,
                     });
                 }
-                Message::User(user)
+                let realname = params[3].into();
+                Message::User(user, realname)
             }
             b"PASS" => {
                 let pass = message.first_parameter_as_vec().ok_or(
@@ -331,6 +333,14 @@ impl TryFrom<&cirque_parser::Message<'_>> for Message {
                     nicknames.push(nick);
                 }
                 Message::Userhost(nicknames)
+            }
+            b"WHOIS" => {
+                let nickname = if params.len() == 2 {
+                    str(params[1].into())?
+                } else {
+                    str(opt(message.first_parameter_as_vec())?)?
+                };
+                Message::Whois(nickname)
             }
             b"QUIT" => {
                 let reason = message.first_parameter_as_vec();
