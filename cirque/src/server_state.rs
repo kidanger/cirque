@@ -7,7 +7,7 @@ use thiserror::Error;
 use tokio::io::AsyncWriteExt;
 
 use crate::client_to_server::{ListFilter, ListOperation, ListOption, MessageDecodingError};
-use crate::server_to_client::{self, ChannelInfo, UserhostReply};
+use crate::server_to_client::{self, ChannelInfo, UserhostReply, WhoReply};
 use crate::transport;
 use crate::types::RegisteredUser;
 use crate::types::RegisteringUser;
@@ -130,7 +130,7 @@ impl ServerStateError {
 }
 
 enum LookupResult<'r> {
-    Channel(&'r Channel),
+    Channel(&'r String, &'r Channel),
     RegisteredUser(&'r RegisteredUser),
 }
 
@@ -555,14 +555,17 @@ impl ServerState {
     }
 
     fn lookup_target<'r>(&'r self, target: &str) -> Option<LookupResult<'r>> {
-        if let Some(channel) = self.channels.get(target) {
-            Some(LookupResult::Channel(channel))
-        } else {
-            self.users
-                .values()
-                .find(|&u| u.nickname.eq_ignore_ascii_case(target))
-                .map(LookupResult::RegisteredUser)
-        }
+        let maybe_channel = self
+            .channels
+            .iter()
+            .find(|(name, _)| name.eq_ignore_ascii_case(target))
+            .map(|(name, channel)| LookupResult::Channel(name, channel));
+        let maybe_user = self
+            .users
+            .values()
+            .find(|&u| u.nickname.eq_ignore_ascii_case(target))
+            .map(LookupResult::RegisteredUser);
+        maybe_channel.into_iter().chain(maybe_user).next()
     }
 
     pub(crate) fn user_messages_target(&mut self, user_id: UserID, target: &str, content: &[u8]) {
@@ -592,7 +595,7 @@ impl ServerState {
         };
 
         match obj {
-            LookupResult::Channel(channel) => {
+            LookupResult::Channel(_, channel) => {
                 if !channel.users.contains_key(&user_id) {
                     let message =
                         server_to_client::Message::Err(ServerStateError::CannotSendToChan {
@@ -644,7 +647,7 @@ impl ServerState {
         };
 
         match obj {
-            LookupResult::Channel(channel) => {
+            LookupResult::Channel(_, channel) => {
                 if !channel.users.contains_key(&user_id) {
                     // NOTICE shouldn't receive an error
                     return;
@@ -1076,6 +1079,70 @@ impl ServerState {
             hostname: target_user.shown_hostname().into(),
             username: target_user.username.clone(),
             realname: target_user.realname.clone(),
+        };
+        user.send(&message);
+    }
+
+    pub(crate) fn user_asks_who(&self, user_id: UserID, mask: &str) {
+        let user = &self.users[&user_id];
+
+        // mask patterns are not handled
+        let result = self.lookup_target(mask);
+
+        let mut replies = vec![];
+        match result {
+            Some(LookupResult::Channel(channel_name, channel)) => {
+                for (user_id, user_mode) in &channel.users {
+                    let user = &self.users[user_id];
+                    let reply = WhoReply {
+                        channel: Some(channel_name.to_string()),
+                        channel_user_mode: Some(user_mode.clone()),
+                        nickname: user.nickname.clone(),
+                        is_op: false,
+                        is_away: user.is_away(),
+                        hostname: user.shown_hostname().into(),
+                        username: user.username.clone(),
+                        realname: user.realname.clone(),
+                    };
+                    replies.push(reply);
+                }
+            }
+            Some(LookupResult::RegisteredUser(user)) => {
+                let reply = WhoReply {
+                    channel: None,
+                    channel_user_mode: None,
+                    nickname: user.nickname.clone(),
+                    is_op: false,
+                    is_away: user.is_away(),
+                    hostname: user.shown_hostname().into(),
+                    username: user.username.clone(),
+                    realname: user.realname.clone(),
+                };
+                replies.push(reply);
+            }
+            None => {
+                if mask == "*" {
+                    for user in self.users.values().take(10) {
+                        let reply = WhoReply {
+                            channel: None,
+                            channel_user_mode: None,
+                            nickname: user.nickname.clone(),
+                            is_op: false,
+                            is_away: user.is_away(),
+                            hostname: user.shown_hostname().into(),
+                            username: user.username.clone(),
+                            realname: user.realname.clone(),
+                        };
+                        replies.push(reply);
+                    }
+                }
+            }
+        }
+
+        let message = server_to_client::Message::Who {
+            client: user.nickname.clone(),
+            mask: mask.into(),
+            replies,
         };
         user.send(&message);
     }

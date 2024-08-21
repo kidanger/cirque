@@ -47,6 +47,7 @@ pub(crate) enum Message {
     Away(Option<Vec<u8>>),
     Userhost(Vec<String>),
     Whois(String),
+    Who(String),
     Quit(Option<Vec<u8>>),
     Unknown(String),
 }
@@ -351,6 +352,10 @@ impl TryFrom<&cirque_parser::Message<'_>> for Message {
                     str(opt(message.first_parameter_as_vec())?)?
                 };
                 Message::Whois(nickname)
+            }
+            b"WHO" => {
+                let mask = str(opt(message.first_parameter_as_vec())?)?;
+                Message::Who(mask)
             }
             b"QUIT" => {
                 let reason = message.first_parameter_as_vec();

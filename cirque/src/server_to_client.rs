@@ -23,6 +23,18 @@ pub(crate) struct UserhostReply {
 }
 
 #[derive(Debug, Clone)]
+pub(crate) struct WhoReply {
+    pub(crate) channel: Option<String>,
+    pub(crate) channel_user_mode: Option<ChannelUserMode>,
+    pub(crate) nickname: String,
+    pub(crate) is_op: bool,
+    pub(crate) is_away: bool,
+    pub(crate) hostname: String,
+    pub(crate) username: String,
+    pub(crate) realname: Vec<u8>,
+}
+
+#[derive(Debug, Clone)]
 pub enum Message {
     Welcome {
         nickname: String,
@@ -132,6 +144,11 @@ pub enum Message {
     RplEndOfWhois {
         client: String,
         target_nickname: String,
+    },
+    Who {
+        client: String,
+        mask: String,
+        replies: Vec<WhoReply>,
     },
     Quit {
         user_fullspec: String,
@@ -649,6 +666,69 @@ impl Message {
                 stream.write_all(b" ").await?;
                 stream.write_all(target_nickname.as_bytes()).await?;
                 stream.write_all(b" :End of /WHOIS list").await?;
+                stream.write_all(b"\r\n").await?;
+            }
+            Message::Who {
+                client,
+                mask,
+                replies,
+            } => {
+                for WhoReply {
+                    channel,
+                    channel_user_mode,
+                    nickname,
+                    is_op,
+                    is_away,
+                    hostname,
+                    username,
+                    realname,
+                } in replies
+                {
+                    stream.write_all(b":").await?;
+                    stream.write_all(context.server_name.as_bytes()).await?;
+                    stream.write_all(b" 352 ").await?;
+                    stream.write_all(client.as_bytes()).await?;
+                    stream.write_all(b" ").await?;
+                    if let Some(channel) = channel {
+                        stream.write_all(channel.as_bytes()).await?;
+                    } else {
+                        stream.write_all(b"*").await?;
+                    }
+                    stream.write_all(b" ").await?;
+                    stream.write_all(username.as_bytes()).await?;
+                    stream.write_all(b" ").await?;
+                    stream.write_all(hostname.as_bytes()).await?;
+                    stream.write_all(b" ").await?;
+                    stream.write_all(context.server_name.as_bytes()).await?;
+                    stream.write_all(b" ").await?;
+                    stream.write_all(nickname.as_bytes()).await?;
+                    stream.write_all(b" ").await?;
+                    if *is_away {
+                        stream.write_all(b"G").await?;
+                    } else {
+                        stream.write_all(b"H").await?;
+                    }
+                    if *is_op {
+                        stream.write_all(b"*").await?;
+                    }
+                    if let Some(channel_user_mode) = channel_user_mode {
+                        if channel_user_mode.is_op() {
+                            stream.write_all(b"@").await?;
+                        } else if channel_user_mode.is_voice() {
+                            stream.write_all(b"v").await?;
+                        }
+                    }
+                    stream.write_all(b" :0 ").await?;
+                    stream.write_all(realname).await?;
+                    stream.write_all(b"\r\n").await?;
+                }
+                stream.write_all(b":").await?;
+                stream.write_all(context.server_name.as_bytes()).await?;
+                stream.write_all(b" 315 ").await?;
+                stream.write_all(client.as_bytes()).await?;
+                stream.write_all(b" ").await?;
+                stream.write_all(mask.as_bytes()).await?;
+                stream.write_all(b" :End of WHO list").await?;
                 stream.write_all(b"\r\n").await?;
             }
             Message::Quit {

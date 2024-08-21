@@ -115,7 +115,6 @@ impl Topic {
 
 #[derive(Debug, Clone, Default, Eq, PartialEq)]
 pub(crate) struct ChannelUserMode {
-    // it's not clear yet if a user can be both thing at once
     op: bool,
     voice: bool,
 }
