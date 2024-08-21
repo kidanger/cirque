@@ -151,8 +151,15 @@ impl TryFrom<&cirque_parser::Message<'_>> for Message {
             }
             b"MODE" => {
                 let mut target = str(opt(message.first_parameter_as_vec())?)?;
+
                 // for now we will assume that the target is a channel
-                assert!(target.starts_with('#'));
+                // TODO: fix this
+                if !target.starts_with('#') {
+                    return Err(MessageDecodingError::NoRecipient {
+                        command: str(message.command().into())?,
+                    });
+                }
+
                 target.make_ascii_lowercase();
                 if let Some(change) = params.get(1) {
                     let param = if let Some(param) = params.get(2) {
