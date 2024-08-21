@@ -1057,6 +1057,11 @@ impl ServerState {
                 target: nickname.to_string(),
             });
             user.send(&message);
+            let message = server_to_client::Message::RplEndOfWhois {
+                client: user.nickname.to_string(),
+                target_nickname: nickname.to_string(),
+            };
+            user.send(&message);
             return;
         };
 

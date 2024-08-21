@@ -128,6 +128,11 @@ pub enum Message {
         username: String,
         realname: Vec<u8>,
     },
+    /// when the WHOIS resulted in an error, we still need to write the RPL_ENDOFWHOIS
+    RplEndOfWhois {
+        client: String,
+        target_nickname: String,
+    },
     Quit {
         user_fullspec: String,
         reason: Vec<u8>,
@@ -624,6 +629,19 @@ impl Message {
                 stream.write_all(realname).await?;
                 stream.write_all(b"\r\n").await?;
 
+                stream.write_all(b":").await?;
+                stream.write_all(context.server_name.as_bytes()).await?;
+                stream.write_all(b" 318 ").await?;
+                stream.write_all(client.as_bytes()).await?;
+                stream.write_all(b" ").await?;
+                stream.write_all(target_nickname.as_bytes()).await?;
+                stream.write_all(b" :End of /WHOIS list").await?;
+                stream.write_all(b"\r\n").await?;
+            }
+            Message::RplEndOfWhois {
+                client,
+                target_nickname,
+            } => {
                 stream.write_all(b":").await?;
                 stream.write_all(context.server_name.as_bytes()).await?;
                 stream.write_all(b" 318 ").await?;

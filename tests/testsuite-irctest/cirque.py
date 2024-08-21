@@ -6,6 +6,7 @@ from irctest.basecontrollers import BaseServerController, DirectoryBasedControll
 
 class CirqueController(BaseServerController, DirectoryBasedController):
     software_name = "cirque"
+    supported_sasl_mechanisms = {}
 
     def run(
         self,
