@@ -344,7 +344,7 @@ impl ServerState {
         }
 
         let user_mode = if channel.users.is_empty() {
-            ChannelUserMode::new_op()
+            ChannelUserMode::default().with_op()
         } else {
             ChannelUserMode::default()
         };
@@ -732,16 +732,14 @@ impl ServerState {
             "+o" | "+v" => {
                 let target = param.unwrap();
                 let target_user_id = lookup_user(target)?;
-                let new_user_mode = match modechar {
-                    "+o" => ChannelUserMode::new_op(),
-                    "+v" => ChannelUserMode::new_voice(),
+                let cur_target_mode = channel.users.get_mut(&target_user_id).unwrap();
+                let new_target_mode = match modechar {
+                    "+o" => cur_target_mode.with_op(),
+                    "+v" => cur_target_mode.with_voice(),
                     _ => panic!(),
                 };
-                if channel
-                    .users
-                    .insert(target_user_id, new_user_mode)
-                    .is_some()
-                {
+                if *cur_target_mode != new_target_mode {
+                    *cur_target_mode = new_target_mode;
                     let message = server_to_client::Message::Mode {
                         user_fullspec: user.fullspec(),
                         target: channel_name.to_string(),
@@ -756,12 +754,15 @@ impl ServerState {
             }
             "-o" | "-v" => {
                 let target = param.unwrap();
-                let user_id = lookup_user(target)?;
-                if channel
-                    .users
-                    .insert(user_id, ChannelUserMode::default())
-                    .is_some()
-                {
+                let target_user_id = lookup_user(target)?;
+                let cur_target_mode = channel.users.get_mut(&target_user_id).unwrap();
+                let new_target_mode = match modechar {
+                    "+o" => cur_target_mode.without_op(),
+                    "+v" => cur_target_mode.without_voice(),
+                    _ => panic!(),
+                };
+                if *cur_target_mode != new_target_mode {
+                    *cur_target_mode = new_target_mode;
                     let message = server_to_client::Message::Mode {
                         user_fullspec: user.fullspec(),
                         target: channel_name.to_string(),

@@ -113,7 +113,7 @@ impl Topic {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Eq, PartialEq)]
 pub(crate) struct ChannelUserMode {
     // it's not clear yet if a user can be both thing at once
     op: bool,
@@ -121,17 +121,31 @@ pub(crate) struct ChannelUserMode {
 }
 
 impl ChannelUserMode {
-    pub(crate) fn new_op() -> Self {
+    pub(crate) fn with_op(&self) -> Self {
         Self {
             op: true,
-            ..Default::default()
+            ..self.clone()
         }
     }
 
-    pub(crate) fn new_voice() -> Self {
+    pub(crate) fn without_op(&self) -> Self {
+        Self {
+            op: false,
+            ..self.clone()
+        }
+    }
+
+    pub(crate) fn with_voice(&self) -> Self {
         Self {
             voice: true,
-            ..Default::default()
+            ..self.clone()
+        }
+    }
+
+    pub(crate) fn without_voice(&self) -> Self {
+        Self {
+            voice: true,
+            ..self.clone()
         }
     }
 

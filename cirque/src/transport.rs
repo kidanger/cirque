@@ -108,6 +108,7 @@ impl TCPListener {
 impl Listener for TCPListener {
     async fn accept(&self) -> anyhow::Result<AnyStream> {
         let (stream, _peer_addr) = self.listener.accept().await?;
+        stream.set_nodelay(true)?;
         Ok(AnyStream::new(stream))
     }
 }

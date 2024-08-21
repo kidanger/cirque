@@ -273,6 +273,11 @@ impl Session {
                     // some tests from irctest requires buffered messages unfortunately
                     let mut buf = std::io::Cursor::new(Vec::<u8>::new());
                     message.write_to(&mut buf, &message_context).await?;
+                    // it's likely that there are more messages available, we bundle them all
+                    // potentially in a single tcp package
+                    while let Ok(msg) = rx.try_recv() {
+                        msg.write_to(&mut buf, &message_context).await?;
+                    }
                     self.stream.write_all(&buf.into_inner()).await?;
                 }
             }
