@@ -795,8 +795,8 @@ impl ServerState {
                 let target_user_id = lookup_user(target)?;
                 let cur_target_mode = channel.users.get_mut(&target_user_id).unwrap();
                 let new_target_mode = match modechar {
-                    "+o" => cur_target_mode.without_op(),
-                    "+v" => cur_target_mode.without_voice(),
+                    "-o" => cur_target_mode.without_op(),
+                    "-v" => cur_target_mode.without_voice(),
                     _ => panic!(),
                 };
                 if *cur_target_mode != new_target_mode {
