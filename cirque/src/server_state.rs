@@ -7,7 +7,7 @@ use thiserror::Error;
 use tokio::io::AsyncWriteExt;
 
 use crate::client_to_server::{ListFilter, ListOperation, ListOption, MessageDecodingError};
-use crate::server_to_client::{self, ChannelInfo};
+use crate::server_to_client::{self, ChannelInfo, UserhostReply};
 use crate::transport;
 use crate::types::RegisteredUser;
 use crate::types::RegisteringUser;
@@ -1023,6 +1023,27 @@ impl ServerState {
             server_to_client::Message::UnAway {
                 nickname: user.nickname.clone(),
             }
+        };
+        user.send(&message);
+    }
+
+    pub(crate) fn user_ask_userhosts(&self, user_id: UserID, nicknames: &[String]) {
+        let user = &self.users[&user_id];
+        let mut replies = vec![];
+        for nick in nicknames {
+            if let Some(user) = self.users.values().find(|&u| &u.nickname == nick) {
+                let reply = UserhostReply {
+                    nickname: user.nickname.clone(),
+                    is_op: false, // no one is OP for now
+                    is_away: user.is_away(),
+                    hostname: user.shown_hostname().into(),
+                };
+                replies.push(reply);
+            }
+        }
+        let message = server_to_client::Message::RplUserhost {
+            nickname: user.nickname.clone(),
+            info: replies,
         };
         user.send(&message);
     }

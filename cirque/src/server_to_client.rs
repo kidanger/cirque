@@ -15,6 +15,14 @@ pub(crate) struct ChannelInfo {
 }
 
 #[derive(Debug, Clone)]
+pub(crate) struct UserhostReply {
+    pub(crate) nickname: String,
+    pub(crate) is_op: bool,
+    pub(crate) is_away: bool,
+    pub(crate) hostname: String,
+}
+
+#[derive(Debug, Clone)]
 pub enum Message {
     Welcome {
         nickname: String,
@@ -107,6 +115,10 @@ pub enum Message {
         nickname: String,
         target_nickname: String,
         away_message: Vec<u8>,
+    },
+    RplUserhost {
+        nickname: String,
+        info: Vec<UserhostReply>,
     },
     Quit {
         user_fullspec: String,
@@ -218,15 +230,14 @@ impl Message {
                     }
                     stream.write_all(channel.as_bytes()).await?;
                     stream.write_all(b" :").await?;
-                    let mut iter = nicknames.iter().peekable();
-                    while let Some((nick, user_mode)) = iter.next() {
+                    for (i, (nick, user_mode)) in nicknames.iter().enumerate() {
                         if user_mode.is_op() {
                             stream.write_all(b"@").await?;
                         } else if user_mode.is_voice() {
                             stream.write_all(b"+").await?;
                         }
                         stream.write_all(nick.as_bytes()).await?;
-                        if iter.peek().is_some() {
+                        if i != nicknames.len() - 1 {
                             stream.write_all(b" ").await?;
                         }
                     }
@@ -537,6 +548,38 @@ impl Message {
                 stream.write_all(target_nickname.as_bytes()).await?;
                 stream.write_all(b" :").await?;
                 stream.write_all(away_message).await?;
+                stream.write_all(b"\r\n").await?;
+            }
+            Message::RplUserhost { nickname, info } => {
+                stream.write_all(b":").await?;
+                stream.write_all(context.server_name.as_bytes()).await?;
+                stream.write_all(b" 302 ").await?;
+                stream.write_all(nickname.as_bytes()).await?;
+                stream.write_all(b" :").await?;
+                for (
+                    i,
+                    UserhostReply {
+                        nickname,
+                        is_op,
+                        is_away,
+                        hostname,
+                    },
+                ) in info.iter().enumerate()
+                {
+                    stream.write_all(nickname.as_bytes()).await?;
+                    if *is_op {
+                        stream.write_all(b"*").await?;
+                    }
+                    stream.write_all(b"=").await?;
+                    match is_away {
+                        true => stream.write_all(b"-").await?,
+                        false => stream.write_all(b"+").await?,
+                    }
+                    stream.write_all(hostname.as_bytes()).await?;
+                    if i != info.len() - 1 {
+                        stream.write_all(b" ").await?;
+                    }
+                }
                 stream.write_all(b"\r\n").await?;
             }
             Message::Quit {

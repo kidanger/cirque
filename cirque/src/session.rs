@@ -164,6 +164,9 @@ impl RegisteredState {
             client_to_server::Message::Away(away_message) => {
                 server_state.user_indicates_away(self.user_id, away_message.as_deref());
             }
+            client_to_server::Message::Userhost(nicknames) => {
+                server_state.user_ask_userhosts(self.user_id, &nicknames);
+            }
             client_to_server::Message::Unknown(command) => {
                 server_state.user_sends_unknown_command(self.user_id, &command);
             }

@@ -29,8 +29,17 @@ impl RegisteredUser {
         let _ = self.mailbox.send(message.clone());
     }
 
+    pub(crate) fn shown_hostname(&self) -> &str {
+        "hidden"
+    }
+
     pub(crate) fn fullspec(&self) -> String {
-        format!("{}!{}@hidden", self.nickname, self.username)
+        format!(
+            "{}!{}@{}",
+            self.nickname,
+            self.username,
+            self.shown_hostname()
+        )
     }
 
     pub fn is_away(&self) -> bool {

@@ -45,6 +45,7 @@ pub(crate) enum Message {
     #[allow(clippy::upper_case_acronyms)]
     MOTD(),
     Away(Option<Vec<u8>>),
+    Userhost(Vec<String>),
     Quit(Option<Vec<u8>>),
     Unknown(String),
 }
@@ -315,6 +316,21 @@ impl TryFrom<&cirque_parser::Message<'_>> for Message {
                     }
                 });
                 Message::Away(away_message)
+            }
+            b"USERHOST" => {
+                // up-to five nicknames, in separate parameters
+                // the first one is mandatory
+                if params.is_empty() {
+                    return Err(MessageDecodingError::NotEnoughParameters {
+                        command: str(message.command().to_vec())?,
+                    });
+                }
+                let mut nicknames = vec![];
+                for i in 0..params.len().min(5) {
+                    let nick = str(params[i].to_vec())?;
+                    nicknames.push(nick);
+                }
+                Message::Userhost(nicknames)
             }
             b"QUIT" => {
                 let reason = message.first_parameter_as_vec();
