@@ -44,6 +44,7 @@ pub(crate) enum Message {
     WhoWas(String, Option<usize>),
     #[allow(clippy::upper_case_acronyms)]
     MOTD(),
+    Away(Option<Vec<u8>>),
     Quit(Option<Vec<u8>>),
     Unknown(String),
 }
@@ -304,6 +305,16 @@ impl TryFrom<&cirque_parser::Message<'_>> for Message {
             b"MOTD" => {
                 // don't parse the "server" argument, we don't support multi-server setups
                 Message::MOTD()
+            }
+            b"AWAY" => {
+                let away_message = message.first_parameter_as_vec().and_then(|m| {
+                    if m.is_empty() {
+                        None
+                    } else {
+                        Some(m)
+                    }
+                });
+                Message::Away(away_message)
             }
             b"QUIT" => {
                 let reason = message.first_parameter_as_vec();

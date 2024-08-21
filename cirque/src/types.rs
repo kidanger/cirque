@@ -20,6 +20,7 @@ pub struct RegisteredUser {
     pub(crate) user_id: UserID,
     pub(crate) nickname: String,
     pub(crate) username: String,
+    pub(crate) away_message: Option<Vec<u8>>,
     mailbox: tokio::sync::mpsc::UnboundedSender<server_to_client::Message>,
 }
 
@@ -30,6 +31,10 @@ impl RegisteredUser {
 
     pub(crate) fn fullspec(&self) -> String {
         format!("{}!{}@hidden", self.nickname, self.username)
+    }
+
+    pub fn is_away(&self) -> bool {
+        self.away_message.is_some()
     }
 }
 
@@ -76,6 +81,7 @@ impl From<RegisteringUser> for RegisteredUser {
             user_id: value.user_id,
             nickname: value.nickname.unwrap(),
             username: value.username.unwrap(),
+            away_message: None,
             mailbox: value.mailbox,
         }
     }

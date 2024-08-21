@@ -29,6 +29,7 @@ if __name__ == "__main__":
         "CONNECTION_REGISTRATION",
         "PRIVMSG_NOTICE",
         "MOTD",
+        "AWAY",
 
         # disabled:
         # "ERR_UNKNOWN",

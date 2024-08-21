@@ -96,6 +96,18 @@ pub enum Message {
     List {
         infos: Vec<ChannelInfo>,
     },
+    NowAway {
+        nickname: String,
+    },
+    UnAway {
+        nickname: String,
+    },
+    /// When someone sends a message to an away user or on WHOIS
+    RplAway {
+        nickname: String,
+        target_nickname: String,
+        away_message: Vec<u8>,
+    },
     Quit {
         user_fullspec: String,
         reason: Vec<u8>,
@@ -491,6 +503,41 @@ impl Message {
                 stream.write_all(context.server_name.as_bytes()).await?;
                 stream.write_all(b" 323 ").await?;
                 stream.write_all(b":End of /LIST\r\n").await?;
+            }
+            Message::NowAway { nickname } => {
+                stream.write_all(b":").await?;
+                stream.write_all(context.server_name.as_bytes()).await?;
+                stream.write_all(b" 306 ").await?;
+                stream.write_all(nickname.as_bytes()).await?;
+                stream
+                    .write_all(b" :You have been marked as being away")
+                    .await?;
+                stream.write_all(b"\r\n").await?;
+            }
+            Message::UnAway { nickname } => {
+                stream.write_all(b":").await?;
+                stream.write_all(context.server_name.as_bytes()).await?;
+                stream.write_all(b" 305 ").await?;
+                stream.write_all(nickname.as_bytes()).await?;
+                stream
+                    .write_all(b" :You are no longer marked as being away")
+                    .await?;
+                stream.write_all(b"\r\n").await?;
+            }
+            Message::RplAway {
+                nickname,
+                target_nickname,
+                away_message,
+            } => {
+                stream.write_all(b":").await?;
+                stream.write_all(context.server_name.as_bytes()).await?;
+                stream.write_all(b" 301 ").await?;
+                stream.write_all(nickname.as_bytes()).await?;
+                stream.write_all(b" ").await?;
+                stream.write_all(target_nickname.as_bytes()).await?;
+                stream.write_all(b" :").await?;
+                stream.write_all(away_message).await?;
+                stream.write_all(b"\r\n").await?;
             }
             Message::Quit {
                 user_fullspec,

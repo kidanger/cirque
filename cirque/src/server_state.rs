@@ -608,6 +608,14 @@ impl ServerState {
             }
             LookupResult::RegisteredUser(target_user) => {
                 target_user.send(&message);
+                if let Some(away_message) = &target_user.away_message {
+                    let message = server_to_client::Message::RplAway {
+                        nickname: user.nickname.clone(),
+                        target_nickname: target_user.nickname.clone(),
+                        away_message: away_message.clone(),
+                    };
+                    user.send(&message);
+                }
             }
         }
     }
@@ -1000,6 +1008,22 @@ impl ServerState {
             infos: channel_info_list,
         };
         let user = &self.users[&user_id];
+        user.send(&message);
+    }
+
+    pub(crate) fn user_indicates_away(&mut self, user_id: UserID, away_message: Option<&[u8]>) {
+        let user = self.users.get_mut(&user_id).unwrap();
+        user.away_message = away_message.map(|m| m.into());
+
+        let message = if user.is_away() {
+            server_to_client::Message::NowAway {
+                nickname: user.nickname.clone(),
+            }
+        } else {
+            server_to_client::Message::UnAway {
+                nickname: user.nickname.clone(),
+            }
+        };
         user.send(&message);
     }
 }
