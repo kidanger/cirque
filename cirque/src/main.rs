@@ -14,10 +14,7 @@ struct FixedMOTDProvider(Option<String>);
 
 impl cirque::MOTDProvider for FixedMOTDProvider {
     fn motd(&self) -> Option<Vec<Vec<u8>>> {
-        match &self.0 {
-            Some(motd) => Some(vec![motd.as_bytes().to_vec()]),
-            None => None,
-        }
+        self.0.as_ref().map(|motd| vec![motd.as_bytes().to_vec()])
     }
 }
 

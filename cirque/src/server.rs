@@ -6,11 +6,11 @@ pub async fn run_server(listener: impl Listener, server_state: ServerState) -> a
     let server_state = server_state.shared();
 
     loop {
-        let stream = listener.accept().await?;
-        let stream = stream.with_debug();
-
         let server_state = server_state.clone();
+        let stream = listener.accept().await;
         let fut = async move {
+            let stream = stream?;
+            let stream = stream.with_debug();
             Session::init(stream).run(server_state).await?;
             dbg!("client dropped");
             anyhow::Ok(())
