@@ -180,10 +180,12 @@ impl ServerState {
     ) -> Result<(), ServerStateError> {
         let look = self.lookup_target(nickname);
         if look.is_none()
-            && !self
-                .registering_users
-                .values()
-                .any(|u| u.nickname.as_deref() == Some(nickname))
+            && !self.registering_users.values().any(|u| {
+                u.nickname
+                    .as_deref()
+                    .unwrap_or_default()
+                    .eq_ignore_ascii_case(nickname)
+            })
         {
             return Ok(());
         }
@@ -555,10 +557,11 @@ impl ServerState {
     fn lookup_target<'r>(&'r self, target: &str) -> Option<LookupResult<'r>> {
         if let Some(channel) = self.channels.get(target) {
             Some(LookupResult::Channel(channel))
-        } else if let Some(user) = self.users.values().find(|&u| u.nickname == target) {
-            Some(LookupResult::RegisteredUser(user))
         } else {
-            None
+            self.users
+                .values()
+                .find(|&u| u.nickname.eq_ignore_ascii_case(target))
+                .map(LookupResult::RegisteredUser)
         }
     }
 
