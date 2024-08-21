@@ -10,23 +10,20 @@ use cirque::ServerState;
 use cirque::{TCPListener, TLSListener};
 
 #[derive(Debug)]
-struct NoMOTDProvider;
-impl cirque::MOTDProvider for NoMOTDProvider {
+struct FixedMOTDProvider(Option<String>);
+
+impl cirque::MOTDProvider for FixedMOTDProvider {
     fn motd(&self) -> Option<Vec<Vec<u8>>> {
-        None
+        match &self.0 {
+            Some(motd) => Some(vec![motd.as_bytes().to_vec()]),
+            None => None,
+        }
     }
 }
 
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
     let welcome_config = cirque::WelcomeConfig::default();
-    let password = None;
-    let server_state = ServerState::new(
-        "srv",
-        &welcome_config,
-        Arc::new(NoMOTDProvider {}),
-        password,
-    );
 
     // on SIGHUP, reload the config (motd) and cert files (even if their paths didn't change)
 
@@ -47,6 +44,12 @@ async fn main() -> Result<(), anyhow::Error> {
         }
 
         if certs.is_some() && private_key.is_some() {
+            let server_state = ServerState::new(
+                &config.server_name,
+                &welcome_config,
+                Arc::new(FixedMOTDProvider(config.motd)),
+                config.password.map(|p| p.as_bytes().into()),
+            );
             let listener = TLSListener::try_new(certs.unwrap(), private_key.unwrap()).await?;
             run_server(listener, server_state).await
         } else {
@@ -54,6 +57,12 @@ async fn main() -> Result<(), anyhow::Error> {
         }
     } else {
         dbg!("listening without TLS on 6667");
+        let server_state = ServerState::new(
+            "srv",
+            &welcome_config,
+            Arc::new(FixedMOTDProvider(None)),
+            None,
+        );
         let listener = TCPListener::try_new(6667).await?;
         run_server(listener, server_state).await
     }

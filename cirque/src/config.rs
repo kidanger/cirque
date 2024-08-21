@@ -3,6 +3,9 @@ use std::{fs, path::PathBuf, str::FromStr};
 use yaml_rust2::{Yaml, YamlLoader};
 
 pub struct Config {
+    pub server_name: String,
+    pub password: Option<String>,
+    pub motd: Option<String>,
     pub cert_file_path: Option<PathBuf>,
     pub private_key_file_path: Option<PathBuf>,
 }
@@ -38,6 +41,10 @@ impl Config {
             .ok_or(anyhow::anyhow!("invalid yaml document"))?;
 
         // Index access for map & array
+        let server_name = yaml_path!(doc, "server_name").as_str().unwrap().into();
+        let password = yaml_path!(doc, "password").as_str().map(|s| s.to_owned());
+        let motd = yaml_path!(doc, "motd").as_str().map(|s| s.to_owned());
+
         let tls_cert = yaml_path!(doc, "tls", "cert").as_str();
         let tls_key = yaml_path!(doc, "tls", "key").as_str();
 
@@ -52,6 +59,9 @@ impl Config {
         }
 
         Ok(Self {
+            server_name,
+            password,
+            motd,
             cert_file_path,
             private_key_file_path,
         })
