@@ -994,61 +994,49 @@ impl ServerState {
         list_channels: Option<Vec<String>>,
         list_options: Option<Vec<ListOption>>,
     ) {
-        let mut channel_info_list: Vec<ChannelInfo> = Vec::new();
-
-        if let Some(list_channels) = list_channels {
+        let channels = if let Some(list_channels) = list_channels {
             list_channels
-                .iter()
-                .filter(|channel_name| {
-                    let mut is_valid: bool = true;
-                    if let Some(ref options) = list_options {
-                        if let Some(channel) = self.channels.get(*channel_name) {
-                            for option in options {
-                                let ok = self.filter_channel(option, channel);
-                                if !ok || !is_valid {
-                                    is_valid = false;
-                                }
-                            }
-                        }
-                    }
-                    is_valid
+                .into_iter()
+                .filter_map(|channel_name| {
+                    self.channels.get(&channel_name).map(|c| (channel_name, c))
                 })
-                .for_each(|channel_name| {
-                    if let Some(channel) = self.channels.get(channel_name) {
-                        channel_info_list.push(ChannelInfo {
-                            count: channel.users.len(),
-                            name: channel_name.clone(),
-                            topic: channel.topic.content.clone(),
-                        });
-                    }
-                })
+                .collect::<Vec<_>>()
         } else {
             self.channels
                 .iter()
-                .filter(|&(_channel_name, channel)| {
-                    let mut is_valid: bool = true;
-                    if let Some(ref options) = list_options {
-                        for option in options {
-                            let ok = self.filter_channel(option, channel);
-                            if !ok || !is_valid {
-                                is_valid = false;
-                            }
+                .map(|(name, channel)| (name.to_string(), channel))
+                .collect::<Vec<_>>()
+        };
+
+        let channel_info_list = channels
+            .into_iter()
+            .filter(|(_, channel)| {
+                !channel.mode.is_secret() || channel.users.contains_key(&user_id)
+            })
+            .filter(|(_, channel)| {
+                let mut is_valid: bool = true;
+                if let Some(ref options) = list_options {
+                    for option in options {
+                        let ok = self.filter_channel(option, channel);
+                        if !ok || !is_valid {
+                            is_valid = false;
                         }
                     }
-                    is_valid
-                })
-                .for_each(|(channel_name, channel)| {
-                    channel_info_list.push(ChannelInfo {
-                        count: channel.users.len(),
-                        name: channel_name.clone(),
-                        topic: channel.topic.content.clone(),
-                    });
-                });
-        }
+                }
+                is_valid
+            })
+            .map(|(channel_name, channel)| ChannelInfo {
+                count: channel.users.len(),
+                name: channel_name.clone(),
+                topic: channel.topic.content.clone(),
+            })
+            .collect::<Vec<_>>();
+
+        let user = &self.users[&user_id];
         let message = server_to_client::Message::List {
+            client: user.nickname.clone(),
             infos: channel_info_list,
         };
-        let user = &self.users[&user_id];
         user.send(&message);
     }
 

@@ -30,6 +30,7 @@ if __name__ == "__main__":
         "PRIVMSG_NOTICE",
         "MOTD",
         "AWAY",
+        "LIST",
 
         # disabled:
         # "ERR_UNKNOWN",
