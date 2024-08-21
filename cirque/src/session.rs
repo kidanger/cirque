@@ -280,10 +280,12 @@ impl Session {
 
         if state.client_disconnected_voluntarily() {
             // the client sent a QUIT, handle the disconnection gracefully
-            // TODO: maybe tolerate a timeout to send the last messages and then force quit
+            let mut buf = std::io::Cursor::new(Vec::<u8>::new());
             while let Ok(msg) = rx.try_recv() {
-                msg.write_to(&mut self.stream, &message_context).await?;
+                msg.write_to(&mut buf, &message_context).await?;
             }
+            // TODO: maybe tolerate a timeout to send the last messages and then force quit
+            self.stream.write_all(&buf.into_inner()).await?;
             //self.stream.flush().await?;
         } else if let SessionState::Registering(_) = state {
             // the connection was closed without notification
