@@ -83,6 +83,9 @@ impl TryFrom<&cirque_parser::Message<'_>> for Message {
                     .first_parameter_as_vec()
                     .ok_or(MessageDecodingError::NoNicknameGiven {})?;
                 let nick = str(nick)?;
+                if nick.is_empty() {
+                    return Err(MessageDecodingError::NoNicknameGiven {});
+                }
                 Message::Nick(nick)
             }
             b"USER" => {
