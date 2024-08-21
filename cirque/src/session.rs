@@ -1,4 +1,4 @@
-use tokio::io::AsyncReadExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::server_state::SharedServerState;
 use crate::transport::AnyStream;
@@ -267,8 +267,10 @@ impl Session {
                     }
                 },
                 Some(message) = rx.recv() => {
-                    message.write_to(&mut self.stream, &message_context).await?;
-                    //self.stream.flush().await?;
+                    // some tests from irctest requires buffered messages unfortunately
+                    let mut buf = std::io::Cursor::new(Vec::<u8>::new());
+                    message.write_to(&mut buf, &message_context).await?;
+                    self.stream.write_all(&buf.into_inner()).await?;
                 }
             }
         }

@@ -16,6 +16,7 @@ pub trait Stream: AsyncRead + AsyncWrite + Unpin + Send {}
 
 impl Stream for tokio::net::TcpStream {}
 impl Stream for tokio_rustls::server::TlsStream<tokio::net::TcpStream> {}
+impl Stream for std::io::Cursor<Vec<u8>> {}
 
 pub struct AnyStream {
     inner: Box<dyn Stream>,
