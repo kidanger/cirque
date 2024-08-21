@@ -171,6 +171,9 @@ impl RegisteredState {
             client_to_server::Message::Who(mask) => {
                 server_state.user_asks_who(self.user_id, &mask);
             }
+            client_to_server::Message::Lusers() => {
+                server_state.user_asks_lusers(self.user_id);
+            }
             client_to_server::Message::Unknown(command) => {
                 server_state.user_sends_unknown_command(self.user_id, &command);
             }

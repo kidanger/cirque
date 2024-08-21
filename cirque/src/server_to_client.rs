@@ -107,6 +107,8 @@ pub enum Message {
         n_channels: usize,
         n_clients: usize,
         n_other_servers: usize,
+        // this is mostly because some clients don't like extended lusers info (chirc testsuite)
+        extra_info: bool,
     },
     Part {
         user_fullspec: String,
@@ -461,13 +463,16 @@ impl Message {
                 n_channels,
                 n_clients,
                 n_other_servers,
+                extra_info,
             } => {
                 stream.write_all(b":").await?;
                 stream.write_all(context.server_name.as_bytes()).await?;
                 stream.write_all(b" 251 ").await?;
                 stream.write_all(nickname.as_bytes()).await?;
+                stream.write_all(b" :There are ").await?;
+                stream.write_all(n_clients.to_string().as_bytes()).await?;
                 stream
-                    .write_all(b" :There are N users and 0 invisible on 1 servers\r\n")
+                    .write_all(b" users and 0 invisible on 1 servers\r\n")
                     .await?;
 
                 stream.write_all(b":").await?;
@@ -507,6 +512,28 @@ impl Message {
                     .write_all(n_other_servers.to_string().as_bytes())
                     .await?;
                 stream.write_all(b" servers\r\n").await?;
+
+                if *extra_info {
+                    stream.write_all(b":").await?;
+                    stream.write_all(context.server_name.as_bytes()).await?;
+                    stream.write_all(b" 265 ").await?;
+                    stream.write_all(nickname.as_bytes()).await?;
+                    stream.write_all(b" :Current local users  ").await?;
+                    stream.write_all(n_clients.to_string().as_bytes()).await?;
+                    stream.write_all(b" , max ").await?;
+                    stream.write_all(n_clients.to_string().as_bytes()).await?;
+                    stream.write_all(b"\r\n").await?;
+
+                    stream.write_all(b":").await?;
+                    stream.write_all(context.server_name.as_bytes()).await?;
+                    stream.write_all(b" 266 ").await?;
+                    stream.write_all(nickname.as_bytes()).await?;
+                    stream.write_all(b" :Current global users  ").await?;
+                    stream.write_all(n_clients.to_string().as_bytes()).await?;
+                    stream.write_all(b" , max ").await?;
+                    stream.write_all(n_clients.to_string().as_bytes()).await?;
+                    stream.write_all(b"\r\n").await?;
+                }
             }
             Message::Part {
                 user_fullspec,

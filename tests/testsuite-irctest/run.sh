@@ -23,3 +23,5 @@ PYTHONPATH=tests/testsuite-irctest/ pytest -v -n 3 --controller cirque irctest/i
 PYTHONPATH=tests/testsuite-irctest/ pytest -v -n 3 --controller cirque irctest/irctest/server_tests/connection_registration.py -k "$filters"
 PYTHONPATH=tests/testsuite-irctest/ pytest -v -n 3 --controller cirque irctest/irctest/server_tests/whois.py -k "$filters and not testWhoisNumerics[oper]"  # we don't support OPER
 PYTHONPATH=tests/testsuite-irctest/ pytest -v -n 3 --controller cirque irctest/irctest/server_tests/who.py -k "$filters and not Oper and not Invisible and not [mask]"
+PYTHONPATH=tests/testsuite-irctest/ pytest -v -n 3 --controller cirque irctest/irctest/server_tests/lusers.py -k "$filters"
+PYTHONPATH=tests/testsuite-irctest/ pytest -v -n 3 --controller cirque irctest/irctest/server_tests/regressions.py -k "$filters"

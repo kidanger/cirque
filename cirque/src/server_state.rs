@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ops::Div;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -41,6 +41,8 @@ pub enum ServerStateError {
     UnknownCommand { client: String, command: String },
     #[error("431 {client} :No nickname given")]
     NoNicknameGiven { client: String },
+    #[error("432 {client} {nickname} :Erroneous nickname")]
+    ErroneousNickname { client: String, nickname: String },
     #[error("433 {client} {nickname} :Nickname is already in use")]
     NicknameInUse { client: String, nickname: String },
     #[error("441 {client} {nickname} {channel} :They aren't on that channel")]
@@ -178,28 +180,49 @@ impl ServerState {
         nickname: &str,
         user_id: Option<UserID>,
     ) -> Result<(), ServerStateError> {
-        let look = self.lookup_target(nickname);
-        if look.is_none()
-            && !self.registering_users.values().any(|u| {
+        let mut client = "*";
+        if let Some(user_id) = user_id {
+            if let Some(user) = self.users.get(&user_id) {
+                client = &user.nickname;
+            }
+        }
+
+        let nickname_is_valid = !nickname.is_empty() && {
+            let first_char = nickname.chars().nth(0).unwrap();
+            first_char.is_alphanumeric() || first_char == '_'
+        };
+
+        if !nickname_is_valid {
+            return Err(ServerStateError::ErroneousNickname {
+                client: client.to_string(),
+                nickname: nickname.into(),
+            });
+        }
+
+        let another_user_has_same_nick = self
+            .users
+            .values()
+            .filter(|u| Some(u.user_id) != user_id)
+            .any(|u| u.nickname.eq_ignore_ascii_case(nickname));
+        let another_ruser_has_same_nick = self
+            .registering_users
+            .values()
+            .filter(|u| Some(u.user_id) != user_id)
+            .any(|u| {
                 u.nickname
                     .as_deref()
                     .unwrap_or_default()
                     .eq_ignore_ascii_case(nickname)
-            })
-        {
-            return Ok(());
+            });
+
+        if another_user_has_same_nick || another_ruser_has_same_nick {
+            return Err(ServerStateError::NicknameInUse {
+                client: client.to_string(),
+                nickname: nickname.into(),
+            });
         }
 
-        let mut nick = "*";
-        if let Some(user_id) = user_id {
-            let user: &RegisteredUser = &self.users[&user_id];
-            nick = &user.nickname;
-        }
-
-        Err(ServerStateError::NicknameInUse {
-            client: nick.to_string(),
-            nickname: nickname.into(),
-        })
+        Ok(())
     }
 
     pub(crate) fn send_error(&self, user_id: UserID, error: ServerStateError) {
@@ -241,7 +264,7 @@ impl ServerState {
         user_id: UserID,
         nick: &str,
     ) -> Result<(), ServerStateError> {
-        self.check_nickname(nick, None)?;
+        self.check_nickname(nick, Some(user_id))?;
         let user = self.registering_users.get_mut(&user_id).unwrap();
         user.nickname = Some(nick.into());
         Ok(())
@@ -535,20 +558,29 @@ impl ServerState {
 
         let user = self.users.get_mut(&user_id).unwrap();
 
+        if user.nickname == new_nick {
+            return Ok(());
+        }
+
         let message = server_to_client::Message::Nick {
             previous_user_fullspec: user.fullspec(),
             nickname: new_nick.to_string(),
         };
         new_nick.clone_into(&mut user.nickname);
 
-        // TODO: maybe make sure we don't send it multiple times to the same client?
+        let mut users = HashSet::new();
+        users.insert(user_id);
         for channel in self.channels.values_mut() {
             if channel.users.contains_key(&user_id) {
-                for user_id in channel.users.keys() {
-                    let user = &self.users[user_id];
-                    user.send(&message);
+                for &user_id in channel.users.keys() {
+                    users.insert(user_id);
                 }
             }
+        }
+
+        for user_id in users {
+            let user = &self.users[&user_id];
+            user.send(&message);
         }
 
         Ok(())
@@ -875,10 +907,11 @@ impl ServerState {
         let message = server_to_client::Message::LUsers {
             nickname: user.nickname.to_string(),
             n_operators: 0,
-            n_unknown_connections: 0,
-            n_channels: 0,
-            n_clients: 1,
+            n_unknown_connections: self.registering_users.len(),
+            n_channels: self.channels.len(),
+            n_clients: self.users.len(),
             n_other_servers: 0,
+            extra_info: false,
         };
         user.send(&message);
 
@@ -1143,6 +1176,21 @@ impl ServerState {
             client: user.nickname.clone(),
             mask: mask.into(),
             replies,
+        };
+        user.send(&message);
+    }
+
+    pub(crate) fn user_asks_lusers(&self, user_id: UserID) {
+        let user = &self.users[&user_id];
+
+        let message = server_to_client::Message::LUsers {
+            nickname: user.nickname.to_string(),
+            n_operators: 0,
+            n_unknown_connections: self.registering_users.len(),
+            n_channels: self.channels.len(),
+            n_clients: self.users.len(),
+            n_other_servers: 0,
+            extra_info: true,
         };
         user.send(&message);
     }
