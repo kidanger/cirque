@@ -22,35 +22,28 @@ use crate::{Command, Message, Parameters, Source};
 //
 // Servers MAY have additional implementation-specific nickname restrictions and SHOULD avoid the use of nicknames which are ambiguous with commands or command parameters where this could lead to confusion or error.
 fn nickname(buf: &[u8]) -> IResult<&[u8], &[u8]> {
-    let is_valid_nickname_char = |c: u8| {
-        // TODO
-        c.is_ascii_alphanumeric() || c == b'-'
-    };
+    let is_valid_nickname_char = |c: u8| c.is_ascii_alphanumeric() || c == b'-';
 
     let (buf, nickname) = take_while1(is_valid_nickname_char)(buf)?;
     Ok((buf, nickname))
 }
 
 fn user(buf: &[u8]) -> IResult<&[u8], &[u8]> {
-    let is_valid_user_char = |c: u8| {
-        // TODO
-        c.is_ascii_alphanumeric()
-    };
+    let is_valid_user_char = |c: u8| c.is_ascii_alphanumeric();
 
     let (buf, user) = take_while1(is_valid_user_char)(buf)?;
     Ok((buf, user))
 }
 
 fn host(buf: &[u8]) -> IResult<&[u8], &[u8]> {
-    let is_valid_host_char = |c: u8| {
-        // TODO
-        c.is_ascii_alphanumeric()
-    };
+    let is_valid_host_char = |c: u8| c.is_ascii_alphanumeric();
 
     let (buf, user) = take_while1(is_valid_host_char)(buf)?;
     Ok((buf, user))
 }
 
+/// NOTE: The following implementation and the functions above does not respect the specification,
+///       simply because an IRC server never receives a source.
 fn parse_source_inner(buf: &[u8]) -> IResult<&[u8], Source> {
     let (buf, nickname) = nickname(buf)?;
     let (buf, user) = opt(preceded(char('!'), user))(buf)?;
