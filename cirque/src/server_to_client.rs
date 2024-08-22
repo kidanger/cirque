@@ -1,6 +1,5 @@
-use std::io::Write;
-
 use crate::{
+    message_writer::MessageWriter,
     server_state::ServerStateError,
     types::{ChannelID, ChannelMode, ChannelUserMode, Topic},
     WelcomeConfig,
@@ -167,120 +166,129 @@ pub(crate) struct MessageContext {
 }
 
 impl Message {
-    pub(crate) fn write_to(&self, stream: &mut std::io::Cursor<Vec<u8>>, context: &MessageContext) {
-        // TODO: we should make sure not to write more than 512 bytes including \r\n
-        //       we could wrap the Stream into a MessageStream respecting this contraint
-        //       maybe have an arena of 512-buffers, and send these to mailboxes instead of
-        //       server_to_client::Message
-        //       this would enable doing less copies to construct Messages (reference field)
-        //          but might complicate error handling?
+    pub(crate) fn write_to(&self, stream: &mut MessageWriter, context: &MessageContext) {
         match self {
             Message::Welcome {
                 nickname,
                 user_fullspec,
                 welcome_config,
             } => {
-                stream.write_all(b":");
-                stream.write_all(context.server_name.as_bytes());
-                stream.write_all(b" 001 ");
-                stream.write_all(nickname.as_bytes());
-                stream.write_all(b" :Welcome to the Internet Relay Network ");
-                stream.write_all(user_fullspec.as_bytes());
-                stream.write_all(b"\r\n");
+                message!(
+                    stream,
+                    b":",
+                    &context.server_name,
+                    b" 001 ",
+                    &nickname,
+                    b" :Welcome to the Internet Relay Network ",
+                    &user_fullspec
+                );
 
-                stream.write_all(b":");
-                stream.write_all(context.server_name.as_bytes());
-                stream.write_all(b" 002 ");
-                stream.write_all(nickname.as_bytes());
-                stream.write_all(b" :Your host is '");
-                stream.write_all(context.server_name.as_bytes());
-                stream.write_all(b"', running cirque.\r\n");
+                message! {
+                    stream,
+                    b":",
+                    &context.server_name,
+                    b" 002 ",
+                    nickname,
+                    b" :Your host is '",
+                    &context.server_name,
+                    b"', running cirque."
+                };
 
-                stream.write_all(b":");
-                stream.write_all(context.server_name.as_bytes());
-                stream.write_all(b" 003 ");
-                stream.write_all(nickname.as_bytes());
-                stream.write_all(b" :This server was created <datetime>.\r\n");
+                message! {
+                    stream,
+                    b":",
+                    &context.server_name,
+                    b" 003 ",
+                    &nickname,
+                    b" :This server was created <datetime>."
+                };
 
-                stream.write_all(b":");
-                stream.write_all(context.server_name.as_bytes());
-                stream.write_all(b" 004 ");
-                stream.write_all(nickname.as_bytes());
-                stream.write_all(b" ");
-                stream.write_all(context.server_name.as_bytes());
-                stream.write_all(b" 0 a a\r\n");
+                message! {
+                    stream,
+                    b":",
+                    &context.server_name,
+                    b" 004 ",
+                    &nickname,
+                    b" ",
+                    &context.server_name,
+                    b" 0 a a"
+                };
 
                 // chirch doesn't like 005, but it's better with it for irctest
                 if welcome_config.send_isupport {
-                    stream.write_all(b":");
-                    stream.write_all(context.server_name.as_bytes());
-                    stream.write_all(b" 005 ");
-                    stream.write_all(nickname.as_bytes());
-                    stream.write_all(b" CASEMAPPING=rfc7613 :are supported by this server\r\n");
+                    message! {
+                        stream,
+                        b":",
+                        &context.server_name,
+                        b" 005 ",
+                        &nickname,
+                        b" CASEMAPPING=rfc7613 :are supported by this server"
+                    };
                 }
             }
             Message::Join {
                 channel,
                 user_fullspec,
             } => {
-                stream.write_all(b":");
-                stream.write_all(user_fullspec.as_bytes());
-                stream.write_all(b" JOIN ");
-                stream.write_all(channel.as_bytes());
-                stream.write_all(b"\r\n");
+                message!(stream, b":", &user_fullspec, b" JOIN ", &channel, b"");
             }
             Message::Nick {
                 previous_user_fullspec,
                 nickname,
             } => {
-                stream.write_all(b":");
-                stream.write_all(previous_user_fullspec.as_bytes());
-                stream.write_all(b" NICK :");
-                stream.write_all(nickname.as_bytes());
-                stream.write_all(b"\r\n");
+                message!(stream, b":", &previous_user_fullspec, b" NICK :", &nickname);
             }
             Message::Names { names, nickname } => {
                 for (channel, channel_mode, nicknames) in names {
-                    stream.write_all(b":");
-                    stream.write_all(context.server_name.as_bytes());
-                    stream.write_all(b" 353 ");
-                    stream.write_all(nickname.as_bytes());
-                    if channel_mode.is_secret() {
-                        stream.write_all(b" @ ");
-                    } else {
-                        stream.write_all(b" = ");
-                    }
-                    stream.write_all(channel.as_bytes());
-                    stream.write_all(b" :");
+                    let mut m = stream
+                        .new_message()
+                        .write(b":")
+                        .write(&context.server_name)
+                        .write(b" 353 ")
+                        .write(&nickname)
+                        .write(match channel_mode.is_secret() {
+                            true => b" @ ",
+                            false => b" = ",
+                        })
+                        .write(&channel)
+                        .write(b" :");
+
                     for (i, (nick, user_mode)) in nicknames.iter().enumerate() {
                         if user_mode.is_op() {
-                            stream.write_all(b"@");
+                            m = m.write(b"@");
                         } else if user_mode.is_voice() {
-                            stream.write_all(b"+");
+                            m = m.write(b"+");
                         }
-                        stream.write_all(nick.as_bytes());
+                        m = m.write(&nick.as_bytes());
                         if i != nicknames.len() - 1 {
-                            stream.write_all(b" ");
+                            m = m.write(b" ")
                         }
                     }
-                    stream.write_all(b"\r\n");
-                    stream.write_all(b":");
-                    stream.write_all(context.server_name.as_bytes());
-                    stream.write_all(b" 366 ");
-                    stream.write_all(nickname.as_bytes());
-                    stream.write_all(b" ");
-                    stream.write_all(channel.as_bytes());
-                    stream.write_all(b" :End of NAMES list\r\n");
+                    m.validate();
+
+                    message!(
+                        stream,
+                        b":",
+                        &context.server_name,
+                        b" 366 ",
+                        &nickname,
+                        b" ",
+                        &channel,
+                        b" :End of NAMES list"
+                    );
                 }
             }
             Message::EndOfNames { nickname, channel } => {
-                stream.write_all(b":");
-                stream.write_all(context.server_name.as_bytes());
-                stream.write_all(b" 366 ");
-                stream.write_all(nickname.as_bytes());
-                stream.write_all(b" ");
-                stream.write_all(channel.as_bytes());
-                stream.write_all(b" :End of NAMES list\r\n");
+                message!(
+                    stream,
+                    b":",
+                    &context.server_name,
+                    b" 366 ",
+                    &nickname,
+                    b" ",
+                    &channel,
+                    b" :End of NAMES list"
+                );
             }
             Message::RplTopic {
                 nickname,
@@ -288,39 +296,45 @@ impl Message {
                 topic,
             } => {
                 if let Some(topic) = topic {
-                    stream.write_all(b":");
-                    stream.write_all(context.server_name.as_bytes());
-                    stream.write_all(b" 332 ");
-                    stream.write_all(nickname.as_bytes());
-                    stream.write_all(b" ");
-                    stream.write_all(channel.as_bytes());
-                    stream.write_all(b" :");
-                    stream.write_all(&topic.content);
-                    stream.write_all(b"\r\n");
+                    message!(
+                        stream,
+                        b":",
+                        &context.server_name,
+                        b" 332 ",
+                        &nickname,
+                        b" ",
+                        &channel,
+                        b" :",
+                        &&topic.content
+                    );
 
                     // irctest requires the RPL_TOPICWHOTIME, but chirch doesn't want it
                     if true {
-                        stream.write_all(b":");
-                        stream.write_all(context.server_name.as_bytes());
-                        stream.write_all(b" 333 ");
-                        stream.write_all(nickname.as_bytes());
-                        stream.write_all(b" ");
-                        stream.write_all(channel.as_bytes());
-                        stream.write_all(b" ");
-                        stream.write_all(topic.from_nickname.as_bytes());
-                        stream.write_all(b" ");
-                        stream.write_all(topic.ts.to_string().as_bytes());
-                        stream.write_all(b"\r\n");
+                        message!(
+                            stream,
+                            b":",
+                            &context.server_name,
+                            b" 333 ",
+                            &nickname,
+                            b" ",
+                            &channel,
+                            b" ",
+                            &topic.from_nickname,
+                            b" ",
+                            &topic.ts.to_string()
+                        );
                     }
                 } else {
-                    stream.write_all(b":");
-                    stream.write_all(context.server_name.as_bytes());
-                    stream.write_all(b" 331 ");
-                    stream.write_all(nickname.as_bytes());
-                    stream.write_all(b" ");
-                    stream.write_all(channel.as_bytes());
-                    stream.write_all(b" :No topic is set");
-                    stream.write_all(b"\r\n");
+                    message!(
+                        stream,
+                        b":",
+                        &context.server_name,
+                        b" 331 ",
+                        &nickname,
+                        b" ",
+                        &channel,
+                        b" :No topic is set"
+                    );
                 }
             }
             Message::Topic {
@@ -328,22 +342,26 @@ impl Message {
                 channel,
                 topic,
             } => {
-                stream.write_all(b":");
-                stream.write_all(user_fullspec.as_bytes());
-                stream.write_all(b" TOPIC ");
-                stream.write_all(channel.as_bytes());
-                stream.write_all(b" :");
-                stream.write_all(&topic.content);
-                stream.write_all(b"\r\n");
+                message!(
+                    stream,
+                    b":",
+                    &user_fullspec,
+                    b" TOPIC ",
+                    &channel,
+                    b" :",
+                    &&topic.content
+                );
             }
             Message::Pong { token } => {
-                stream.write_all(b":");
-                stream.write_all(context.server_name.as_bytes());
-                stream.write_all(b" PONG ");
-                stream.write_all(context.server_name.as_bytes());
-                stream.write_all(b" :");
-                stream.write_all(token);
-                stream.write_all(b"\r\n");
+                message!(
+                    stream,
+                    b":",
+                    &context.server_name,
+                    b" PONG ",
+                    &context.server_name,
+                    b" :",
+                    &token
+                );
             }
             Message::Mode {
                 user_fullspec,
@@ -351,100 +369,120 @@ impl Message {
                 modechar,
                 param,
             } => {
-                stream.write_all(b":");
-                stream.write_all(user_fullspec.as_bytes());
-                stream.write_all(b" MODE ");
-                stream.write_all(target.as_bytes());
-                stream.write_all(b" ");
-                stream.write_all(modechar.as_bytes());
+                let mut m = stream
+                    .new_message()
+                    .write(b":")
+                    .write(&user_fullspec)
+                    .write(b" MODE ")
+                    .write(&target)
+                    .write(b" ")
+                    .write(&modechar.as_bytes());
                 if let Some(param) = param {
-                    stream.write_all(b" ");
-                    stream.write_all(param.as_bytes());
+                    m = m.write(b" ").write(&param.as_bytes());
                 }
-                stream.write_all(b"\r\n");
+                m.validate();
             }
             Message::ChannelMode {
                 nickname,
                 channel,
                 mode,
             } => {
-                stream.write_all(b":");
-                stream.write_all(context.server_name.as_bytes());
-                stream.write_all(b" 324 ");
-                stream.write_all(nickname.as_bytes());
-                stream.write_all(b" ");
-                stream.write_all(channel.as_bytes());
-                stream.write_all(b" +");
+                let mut m = stream.new_message();
+                message_push!(
+                    m,
+                    b":",
+                    &context.server_name,
+                    b" 324 ",
+                    &nickname,
+                    b" ",
+                    &channel,
+                    b" +"
+                );
                 if mode.is_no_external() {
-                    stream.write_all(b"n");
+                    m = m.write(b"n");
                 }
                 if mode.is_secret() {
-                    stream.write_all(b"s");
+                    m = m.write(b"s");
                 }
                 if mode.is_moderated() {
-                    stream.write_all(b"m");
+                    m = m.write(b"m");
                 }
                 if mode.is_topic_protected() {
-                    stream.write_all(b"t");
+                    m = m.write(b"t");
                 }
-                stream.write_all(b"\r\n");
+                m.validate();
             }
             Message::PrivMsg {
                 from_user,
                 target,
                 content,
             } => {
-                stream.write_all(b":");
-                stream.write_all(from_user.as_bytes());
-                stream.write_all(b" PRIVMSG ");
-                stream.write_all(target.as_bytes());
-                stream.write_all(b" :");
-                stream.write_all(content);
-                stream.write_all(b"\r\n");
+                message!(
+                    stream,
+                    b":",
+                    &from_user,
+                    b" PRIVMSG ",
+                    &target,
+                    b" :",
+                    &content
+                );
             }
             Message::Notice {
                 from_user,
                 target,
                 content,
             } => {
-                stream.write_all(b":");
-                stream.write_all(from_user.as_bytes());
-                stream.write_all(b" NOTICE ");
-                stream.write_all(target.as_bytes());
-                stream.write_all(b" :");
-                stream.write_all(content);
-                stream.write_all(b"\r\n");
+                message!(
+                    stream,
+                    b":",
+                    &from_user,
+                    b" NOTICE ",
+                    &target,
+                    b" :",
+                    &content
+                );
             }
             Message::MOTD { nickname, motd } => match motd {
                 Some(motd) => {
-                    stream.write_all(b":");
-                    stream.write_all(context.server_name.as_bytes());
-                    stream.write_all(b" 375 ");
-                    stream.write_all(nickname.as_bytes());
-                    stream.write_all(b" :- <server> Message of the day - \r\n");
+                    message!(
+                        stream,
+                        b":",
+                        &context.server_name,
+                        b" 375 ",
+                        &nickname,
+                        b" :- <server> Message of the day - "
+                    );
 
                     for line in motd {
-                        stream.write_all(b":");
-                        stream.write_all(context.server_name.as_bytes());
-                        stream.write_all(b" 372 ");
-                        stream.write_all(nickname.as_bytes());
-                        stream.write_all(b" :- ");
-                        stream.write_all(line);
-                        stream.write_all(b"\r\n");
+                        message!(
+                            stream,
+                            b":",
+                            &context.server_name,
+                            b" 372 ",
+                            &nickname,
+                            b" :- ",
+                            &line
+                        );
                     }
 
-                    stream.write_all(b":");
-                    stream.write_all(context.server_name.as_bytes());
-                    stream.write_all(b" 376 ");
-                    stream.write_all(nickname.as_bytes());
-                    stream.write_all(b" :End of MOTD command\r\n");
+                    message!(
+                        stream,
+                        b":",
+                        &context.server_name,
+                        b" 376 ",
+                        &nickname,
+                        b" :End of MOTD command"
+                    );
                 }
                 None => {
-                    stream.write_all(b":");
-                    stream.write_all(context.server_name.as_bytes());
-                    stream.write_all(b" 422 ");
-                    stream.write_all(nickname.as_bytes());
-                    stream.write_all(b" :MOTD File is missing\r\n");
+                    message!(
+                        stream,
+                        b":",
+                        &context.server_name,
+                        b" 422 ",
+                        &nickname,
+                        b" :MOTD File is missing"
+                    );
                 }
             },
             Message::LUsers {
@@ -456,68 +494,87 @@ impl Message {
                 n_other_servers,
                 extra_info,
             } => {
-                stream.write_all(b":");
-                stream.write_all(context.server_name.as_bytes());
-                stream.write_all(b" 251 ");
-                stream.write_all(nickname.as_bytes());
-                stream.write_all(b" :There are ");
-                stream.write_all(n_clients.to_string().as_bytes());
-                stream.write_all(b" users and 0 invisible on 1 servers\r\n");
+                message!(
+                    stream,
+                    b":",
+                    &context.server_name,
+                    b" 251 ",
+                    &nickname,
+                    b" :There are ",
+                    &n_clients.to_string(),
+                    b" users and 0 invisible on 1 servers"
+                );
 
-                stream.write_all(b":");
-                stream.write_all(context.server_name.as_bytes());
-                stream.write_all(b" 252 ");
-                stream.write_all(nickname.as_bytes());
-                stream.write_all(b" ");
-                stream.write_all(n_operators.to_string().as_bytes());
-                stream.write_all(b" :operator(s) online\r\n");
+                message!(
+                    stream,
+                    b":",
+                    &context.server_name,
+                    b" 252 ",
+                    &nickname,
+                    b" ",
+                    &n_operators.to_string(),
+                    b" :operator(s) online"
+                );
 
-                stream.write_all(b":");
-                stream.write_all(context.server_name.as_bytes());
-                stream.write_all(b" 253 ");
-                stream.write_all(nickname.as_bytes());
-                stream.write_all(b" ");
-                stream.write_all(n_unknown_connections.to_string().as_bytes());
-                stream.write_all(b" :unknown connection(s)\r\n");
+                message!(
+                    stream,
+                    b":",
+                    &context.server_name,
+                    b" 253 ",
+                    &nickname,
+                    b" ",
+                    &n_unknown_connections.to_string(),
+                    b" :unknown connection(s)"
+                );
 
-                stream.write_all(b":");
-                stream.write_all(context.server_name.as_bytes());
-                stream.write_all(b" 254 ");
-                stream.write_all(nickname.as_bytes());
-                stream.write_all(b" ");
-                stream.write_all(n_channels.to_string().as_bytes());
-                stream.write_all(b" :channels formed\r\n");
+                message!(
+                    stream,
+                    b":",
+                    &context.server_name,
+                    b" 254 ",
+                    &nickname,
+                    b" ",
+                    &n_channels.to_string(),
+                    b" :channels formed"
+                );
 
-                stream.write_all(b":");
-                stream.write_all(context.server_name.as_bytes());
-                stream.write_all(b" 255 ");
-                stream.write_all(nickname.as_bytes());
-                stream.write_all(b" :I have ");
-                stream.write_all(n_clients.to_string().as_bytes());
-                stream.write_all(b" clients and ");
-                stream.write_all(n_other_servers.to_string().as_bytes());
-                stream.write_all(b" servers\r\n");
+                message!(
+                    stream,
+                    b":",
+                    &context.server_name,
+                    b" 255 ",
+                    &nickname,
+                    b" :I have ",
+                    &n_clients.to_string(),
+                    b" clients and ",
+                    &n_other_servers.to_string(),
+                    b" servers"
+                );
 
                 if *extra_info {
-                    stream.write_all(b":");
-                    stream.write_all(context.server_name.as_bytes());
-                    stream.write_all(b" 265 ");
-                    stream.write_all(nickname.as_bytes());
-                    stream.write_all(b" :Current local users  ");
-                    stream.write_all(n_clients.to_string().as_bytes());
-                    stream.write_all(b" , max ");
-                    stream.write_all(n_clients.to_string().as_bytes());
-                    stream.write_all(b"\r\n");
+                    message!(
+                        stream,
+                        b":",
+                        &context.server_name,
+                        b" 265 ",
+                        &nickname,
+                        b" :Current local users  ",
+                        &n_clients.to_string(),
+                        b" , max ",
+                        &n_clients.to_string()
+                    );
 
-                    stream.write_all(b":");
-                    stream.write_all(context.server_name.as_bytes());
-                    stream.write_all(b" 266 ");
-                    stream.write_all(nickname.as_bytes());
-                    stream.write_all(b" :Current global users  ");
-                    stream.write_all(n_clients.to_string().as_bytes());
-                    stream.write_all(b" , max ");
-                    stream.write_all(n_clients.to_string().as_bytes());
-                    stream.write_all(b"\r\n");
+                    message!(
+                        stream,
+                        b":",
+                        &context.server_name,
+                        b" 266 ",
+                        &nickname,
+                        b" :Current global users  ",
+                        &n_clients.to_string(),
+                        b" , max ",
+                        &n_clients.to_string()
+                    );
                 }
             }
             Message::Part {
@@ -525,84 +582,101 @@ impl Message {
                 channel,
                 reason,
             } => {
-                stream.write_all(b":");
-                stream.write_all(user_fullspec.as_bytes());
-                stream.write_all(b" PART ");
-                stream.write_all(channel.as_bytes());
+                let mut m = stream
+                    .new_message()
+                    .write(b":")
+                    .write(&user_fullspec.as_bytes())
+                    .write(b" PART ")
+                    .write(&channel.as_bytes());
                 if let Some(reason) = reason {
-                    stream.write_all(b" :");
-                    stream.write_all(reason);
+                    m = m.write(b" :").write(&reason);
                 }
-                stream.write_all(b"\r\n");
+                m.validate();
             }
             Message::List { client, infos } => {
                 // chirc test suite doesn't like 321
                 if false {
-                    stream.write_all(b":");
-                    stream.write_all(context.server_name.as_bytes());
-                    stream.write_all(b" 321 ");
-                    stream.write_all(client.as_bytes());
-                    stream.write_all(b" ");
-                    stream.write_all(b"Channel :Users  Name\r\n");
+                    message!(
+                        stream,
+                        b":",
+                        &context.server_name,
+                        b" 321 ",
+                        &client,
+                        b" ",
+                        b"Channel :Users  Name"
+                    );
                 }
 
                 for info in infos {
-                    stream.write_all(b":");
-                    stream.write_all(context.server_name.as_bytes());
-                    stream.write_all(b" 322 ");
-                    stream.write_all(client.as_bytes());
-                    stream.write_all(b" ");
-                    stream.write_all(info.name.as_bytes());
-                    stream.write_all(b" ");
-                    stream.write_all(info.count.to_string().as_bytes());
-                    stream.write_all(b" :");
-                    stream.write_all(&info.topic);
-                    stream.write_all(b"\r\n");
+                    message!(
+                        stream,
+                        b":",
+                        &context.server_name,
+                        b" 322 ",
+                        &client,
+                        b" ",
+                        &info.name,
+                        b" ",
+                        &info.count.to_string(),
+                        b" :",
+                        &info.topic
+                    );
                 }
-                stream.write_all(b":");
-                stream.write_all(context.server_name.as_bytes());
-                stream.write_all(b" 323 ");
-                stream.write_all(client.as_bytes());
-                stream.write_all(b" ");
-                stream.write_all(b":End of LIST\r\n");
+                message!(
+                    stream,
+                    b":",
+                    &context.server_name,
+                    b" 323 ",
+                    &client,
+                    b" ",
+                    b":End of LIST"
+                );
             }
             Message::NowAway { nickname } => {
-                stream.write_all(b":");
-                stream.write_all(context.server_name.as_bytes());
-                stream.write_all(b" 306 ");
-                stream.write_all(nickname.as_bytes());
-                stream.write_all(b" :You have been marked as being away");
-                stream.write_all(b"\r\n");
+                message!(
+                    stream,
+                    b":",
+                    &context.server_name,
+                    b" 306 ",
+                    &nickname,
+                    b" :You have been marked as being away"
+                );
             }
             Message::UnAway { nickname } => {
-                stream.write_all(b":");
-                stream.write_all(context.server_name.as_bytes());
-                stream.write_all(b" 305 ");
-                stream.write_all(nickname.as_bytes());
-                stream.write_all(b" :You are no longer marked as being away");
-                stream.write_all(b"\r\n");
+                message!(
+                    stream,
+                    b":",
+                    &context.server_name,
+                    b" 305 ",
+                    &nickname,
+                    b" :You are no longer marked as being away"
+                );
             }
             Message::RplAway {
                 nickname,
                 target_nickname,
                 away_message,
             } => {
-                stream.write_all(b":");
-                stream.write_all(context.server_name.as_bytes());
-                stream.write_all(b" 301 ");
-                stream.write_all(nickname.as_bytes());
-                stream.write_all(b" ");
-                stream.write_all(target_nickname.as_bytes());
-                stream.write_all(b" :");
-                stream.write_all(away_message);
-                stream.write_all(b"\r\n");
+                message!(
+                    stream,
+                    b":",
+                    &context.server_name,
+                    b" 301 ",
+                    &nickname,
+                    b" ",
+                    &target_nickname,
+                    b" :",
+                    &away_message
+                );
             }
             Message::RplUserhost { nickname, info } => {
-                stream.write_all(b":");
-                stream.write_all(context.server_name.as_bytes());
-                stream.write_all(b" 302 ");
-                stream.write_all(nickname.as_bytes());
-                stream.write_all(b" :");
+                let mut m = stream
+                    .new_message()
+                    .write(b":")
+                    .write(&context.server_name.as_bytes())
+                    .write(b" 302 ")
+                    .write(&nickname.as_bytes())
+                    .write(b" :");
                 for (
                     i,
                     UserhostReply {
@@ -613,21 +687,24 @@ impl Message {
                     },
                 ) in info.iter().enumerate()
                 {
-                    stream.write_all(nickname.as_bytes());
+                    message_push!(m, &nickname.as_bytes());
                     if *is_op {
-                        stream.write_all(b"*");
+                        message_push!(m, b"*");
                     }
-                    stream.write_all(b"=");
-                    match is_away {
-                        true => stream.write_all(b"-"),
-                        false => stream.write_all(b"+"),
-                    };
-                    stream.write_all(hostname.as_bytes());
+                    message_push!(
+                        m,
+                        b"=",
+                        match is_away {
+                            true => b"-",
+                            false => b"+",
+                        },
+                        &hostname.as_bytes()
+                    );
                     if i != info.len() - 1 {
-                        stream.write_all(b" ");
+                        message_push!(m, b" ");
                     }
                 }
-                stream.write_all(b"\r\n");
+                m.validate();
             }
             Message::RplWhois {
                 client,
@@ -638,64 +715,74 @@ impl Message {
                 realname,
             } => {
                 if let Some(away_message) = away_message {
-                    stream.write_all(b":");
-                    stream.write_all(context.server_name.as_bytes());
-                    stream.write_all(b" 301 ");
-                    stream.write_all(client.as_bytes());
-                    stream.write_all(b" ");
-                    stream.write_all(target_nickname.as_bytes());
-                    stream.write_all(b" :");
-                    stream.write_all(away_message);
-                    stream.write_all(b"\r\n");
+                    message!(
+                        stream,
+                        b":",
+                        &context.server_name,
+                        b" 301 ",
+                        &client,
+                        b" ",
+                        &target_nickname,
+                        b" :",
+                        &away_message
+                    );
                 }
 
-                stream.write_all(b":");
-                stream.write_all(context.server_name.as_bytes());
-                stream.write_all(b" 311 ");
-                stream.write_all(client.as_bytes());
-                stream.write_all(b" ");
-                stream.write_all(target_nickname.as_bytes());
-                stream.write_all(b" ");
-                stream.write_all(username.as_bytes());
-                stream.write_all(b" ");
-                stream.write_all(hostname.as_bytes());
-                stream.write_all(b" * :");
-                stream.write_all(realname);
-                stream.write_all(b"\r\n");
+                message!(
+                    stream,
+                    b":",
+                    &context.server_name,
+                    b" 311 ",
+                    &client,
+                    b" ",
+                    &target_nickname,
+                    b" ",
+                    &username,
+                    b" ",
+                    &hostname,
+                    b" * :",
+                    &realname
+                );
 
                 // don't send RPL_WHOISCHANNELS, for privacy reasons
                 if false {
-                    stream.write_all(b":");
-                    stream.write_all(context.server_name.as_bytes());
-                    stream.write_all(b" 319 ");
-                    stream.write_all(client.as_bytes());
-                    stream.write_all(b" ");
-                    stream.write_all(target_nickname.as_bytes());
-                    stream.write_all(b" :"); // list of channels goes here
-                    stream.write_all(b"\r\n");
+                    message!(
+                        stream,
+                        b":",
+                        &context.server_name,
+                        b" 319 ",
+                        &client,
+                        b" ",
+                        &target_nickname,
+                        b" :" // list of channels would go here
+                    );
                 }
 
-                stream.write_all(b":");
-                stream.write_all(context.server_name.as_bytes());
-                stream.write_all(b" 318 ");
-                stream.write_all(client.as_bytes());
-                stream.write_all(b" ");
-                stream.write_all(target_nickname.as_bytes());
-                stream.write_all(b" :End of /WHOIS list");
-                stream.write_all(b"\r\n");
+                message!(
+                    stream,
+                    b":",
+                    &context.server_name,
+                    b" 318 ",
+                    &client,
+                    b" ",
+                    &target_nickname,
+                    b" :End of /WHOIS list"
+                );
             }
             Message::RplEndOfWhois {
                 client,
                 target_nickname,
             } => {
-                stream.write_all(b":");
-                stream.write_all(context.server_name.as_bytes());
-                stream.write_all(b" 318 ");
-                stream.write_all(client.as_bytes());
-                stream.write_all(b" ");
-                stream.write_all(target_nickname.as_bytes());
-                stream.write_all(b" :End of /WHOIS list");
-                stream.write_all(b"\r\n");
+                message!(
+                    stream,
+                    b":",
+                    &context.server_name,
+                    b" 318 ",
+                    &client,
+                    b" ",
+                    &target_nickname,
+                    b" :End of /WHOIS list"
+                );
             }
             Message::Who {
                 client,
@@ -713,74 +800,63 @@ impl Message {
                     realname,
                 } in replies
                 {
-                    stream.write_all(b":");
-                    stream.write_all(context.server_name.as_bytes());
-                    stream.write_all(b" 352 ");
-                    stream.write_all(client.as_bytes());
-                    stream.write_all(b" ");
+                    let mut m = stream.new_message();
+                    message_push!(m, b":", &context.server_name, b" 352 ", &client, b" ");
                     if let Some(channel) = channel {
-                        stream.write_all(channel.as_bytes());
+                        message_push!(m, &channel.as_bytes());
                     } else {
-                        stream.write_all(b"*");
+                        message_push!(m, &"*".to_string().as_bytes());
                     }
-                    stream.write_all(b" ");
-                    stream.write_all(username.as_bytes());
-                    stream.write_all(b" ");
-                    stream.write_all(hostname.as_bytes());
-                    stream.write_all(b" ");
-                    stream.write_all(context.server_name.as_bytes());
-                    stream.write_all(b" ");
-                    stream.write_all(nickname.as_bytes());
-                    stream.write_all(b" ");
-                    if *is_away {
-                        stream.write_all(b"G");
-                    } else {
-                        stream.write_all(b"H");
-                    }
+                    message_push!(
+                        m,
+                        b" ",
+                        &username,
+                        b" ",
+                        &hostname,
+                        b" ",
+                        &context.server_name,
+                        b" ",
+                        &nickname,
+                        b" ",
+                        if *is_away { b"G" } else { b"H" }
+                    );
                     if *is_op {
-                        stream.write_all(b"*");
+                        message_push!(m, b"*");
                     }
                     if let Some(channel_user_mode) = channel_user_mode {
                         if channel_user_mode.is_op() {
-                            stream.write_all(b"@");
+                            message_push!(m, b"@");
                         } else if channel_user_mode.is_voice() {
-                            stream.write_all(b"+");
+                            message_push!(m, b"+");
                         }
                     }
-                    stream.write_all(b" :0 ");
-                    stream.write_all(realname);
-                    stream.write_all(b"\r\n");
+                    message_push!(m, b" :0 ", &realname);
+                    m.validate();
                 }
-                stream.write_all(b":");
-                stream.write_all(context.server_name.as_bytes());
-                stream.write_all(b" 315 ");
-                stream.write_all(client.as_bytes());
-                stream.write_all(b" ");
-                stream.write_all(mask.as_bytes());
-                stream.write_all(b" :End of WHO list");
-                stream.write_all(b"\r\n");
+                message!(
+                    stream,
+                    b":",
+                    &context.server_name,
+                    b" 315 ",
+                    &client,
+                    b" ",
+                    &mask,
+                    b" :End of WHO list"
+                );
             }
             Message::Quit {
                 user_fullspec,
                 reason,
             } => {
-                stream.write_all(b":");
-                stream.write_all(user_fullspec.as_bytes());
-                stream.write_all(b" QUIT :");
-                stream.write_all(reason);
-                stream.write_all(b"\r\n");
+                message!(stream, b":", &user_fullspec, b" QUIT :", &reason);
             }
             Message::FatalError { reason } => {
-                stream.write_all(b"ERROR :");
-                stream.write_all(reason);
-                stream.write_all(b"\r\n");
+                message!(stream, b"ERROR :", &reason);
             }
             Message::Err(err) => {
-                stream.write_all(b":");
-                stream.write_all(context.server_name.as_bytes());
-                stream.write_all(b" ");
-                err.write_to(stream);
-                stream.write_all(b"\r\n");
+                let mut m = stream.new_message();
+                message_push!(m, b":", &context.server_name, b" ");
+                err.write_to(m).validate();
             }
         }
     }

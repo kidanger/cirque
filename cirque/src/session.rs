@@ -272,22 +272,14 @@ impl Session {
                     }
                 },
                 Some(msg) = rx.recv() => {
-                    let mut buf = std::io::Cursor::new(Vec::<u8>::new());
-                    std::io::Write::write_all(&mut buf, &msg)?;
-
-                    // it's likely that there are more messages available, we bundle them all
-                    // potentially in a single tcp package
-                    while let Ok(msg) = rx.try_recv() {
-                        std::io::Write::write_all(&mut buf, &msg)?;
-                    }
-
-                    self.stream.write_all(&buf.into_inner()).await?;
+                    self.stream.write_all(&msg).await?;
                 }
             }
         }
 
         if state.client_disconnected_voluntarily() {
-            // the client sent a QUIT, handle the disconnection gracefully
+            // the client sent a QUIT, handle the disconnection gracefully by sending remaining
+            // messages
             let mut buf = std::io::Cursor::new(Vec::<u8>::new());
             while let Ok(msg) = rx.try_recv() {
                 std::io::Write::write_all(&mut buf, &msg)?;

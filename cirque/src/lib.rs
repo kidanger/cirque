@@ -1,4 +1,5 @@
 mod client_to_server;
+#[macro_use]
 mod message_writer;
 mod nickname;
 mod server;

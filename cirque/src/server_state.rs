@@ -6,7 +6,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 
 use crate::client_to_server::{ListFilter, ListOperation, ListOption, MessageDecodingError};
-use crate::message_writer::MailboxSink;
+use crate::message_writer::{MailboxSink, OnGoingMessage};
 use crate::nickname::cure_nickname;
 use crate::server_to_client::{self, ChannelInfo, MessageContext, UserhostReply, WhoReply};
 use crate::types::RegisteringUser;
@@ -68,28 +68,30 @@ pub enum ServerStateError {
 }
 
 impl ServerStateError {
-    pub(crate) fn write_to(&self, stream: &mut std::io::Cursor<Vec<u8>>) -> std::io::Result<()> {
-        use std::io::Write;
+    pub(crate) fn write_to<'b>(&self, mut m: OnGoingMessage<'b>) -> OnGoingMessage<'b> {
         match self {
             ServerStateError::UnknownError {
                 client,
                 command,
                 info,
             } => {
-                stream.write_all(b"400 {client} ____ :{info}");
-                stream.write_all(client.as_bytes());
-                stream.write_all(b" ");
-                stream.write_all(command);
-                stream.write_all(b" :");
-                stream.write_all(info.as_bytes());
+                message_push!(
+                    m,
+                    b"400 {client} ____ :{info}",
+                    &client,
+                    b" ",
+                    command,
+                    b" :",
+                    &info
+                );
+                m
             }
-            m => {
+            err => {
                 // NOTE: later we can optimize to avoid the to_string call
                 // currently it prevents us from using Vec<u8> in ServerStateError
-                stream.write_all(m.to_string().as_bytes());
+                m.write(&err.to_string())
             }
         }
-        Ok(())
     }
 
     fn from_decoding_error_with_client(
