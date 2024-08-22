@@ -19,15 +19,17 @@ enum LookupResult<'r> {
 }
 
 pub struct ServerState {
-    server_name: String,
     users: HashMap<UserID, RegisteredUser>,
     registering_users: HashMap<UserID, RegisteringUser>,
     channels: HashMap<String, Channel>,
+
+    // related to config:
+    server_name: String,
     welcome_config: WelcomeConfig,
-    motd_provider: Arc<dyn MOTDProvider + Send + Sync>,
     password: Option<Vec<u8>>,
-    message_context: MessageContext,
+    motd_provider: Arc<dyn MOTDProvider + Send + Sync>,
     default_channel_mode: ChannelMode,
+    message_context: MessageContext,
 }
 
 impl ServerState {
@@ -41,10 +43,11 @@ impl ServerState {
         MP: MOTDProvider + Send + Sync + 'static,
     {
         Self {
-            server_name: server_name.to_owned(),
             users: Default::default(),
             registering_users: Default::default(),
             channels: Default::default(),
+
+            server_name: server_name.to_owned(),
             welcome_config: welcome_config.to_owned(),
             motd_provider,
             password,

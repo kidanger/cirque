@@ -154,4 +154,6 @@ mod tests {
 
         sink.try_recv().unwrap_err();
     }
+
+    // TODO: test >=510 messages
 }

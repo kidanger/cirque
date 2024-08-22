@@ -20,6 +20,7 @@ if __name__ == "__main__":
 
     exe_path = os.path.join("target", "debug", file_name)
     for tu_type in [
+        "ROBUST",
         "BASIC_CONNECTION",
         "CHANNEL_JOIN",
         "CHANNEL_PRIVMSG_NOTICE",
