@@ -4,19 +4,20 @@ use std::path::Path;
 use std::sync::Arc;
 use std::{path::PathBuf, str::FromStr};
 
-mod config;
-
-use cirque::run_server;
-use cirque::{AnyListener, ServerState};
-use cirque::{TCPListener, TLSListener};
-use config::Config;
 use tokio::select;
 use tokio_rustls::rustls::pki_types::{CertificateDer, PrivateKeyDer};
+
+use cirque_core::ServerState;
+use cirque_server::run_server;
+use cirque_server::{AnyListener, TCPListener, TLSListener};
+
+mod config;
+use config::Config;
 
 #[derive(Debug)]
 struct FixedMOTDProvider(Option<String>);
 
-impl cirque::MOTDProvider for FixedMOTDProvider {
+impl cirque_core::MOTDProvider for FixedMOTDProvider {
     fn motd(&self) -> Option<Vec<Vec<u8>>> {
         self.0.as_ref().map(|motd| vec![motd.as_bytes().to_vec()])
     }
@@ -52,7 +53,7 @@ fn read_config(
 
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
-    let welcome_config = cirque::WelcomeConfig::default();
+    let welcome_config = cirque_core::WelcomeConfig::default();
 
     let mut reload_signal = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::hangup())?;
 

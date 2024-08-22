@@ -3,7 +3,9 @@ resolver = "2"
 
 members = [
     "cirque",
+    "cirque-core",
     "cirque-parser",
+    "cirque-server",
     "tests/testsuite-chirc/chirc-compat",
     "tests/testsuite-irctest/irctest-compat",
 ]

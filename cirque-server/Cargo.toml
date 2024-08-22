@@ -1,18 +1,13 @@
 [package]
-name = "cirque"
+name = "cirque-server"
 version = "0.1.0"
 edition = "2021"
-default-run = "cirque"
 
 [dependencies]
 anyhow = "1.0.86"
-yaml-rust2 = "0.8.1"
 tokio = { version = "1.39.0",features = ["macros", "net", "signal"] }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring"] }
 rustls-pemfile = "2.1.2"
 
+cirque-parser = { path = "../cirque-parser" }
 cirque-core = { path = "../cirque-core" }
-cirque-server = { path = "../cirque-server" }
-
-[dev-dependencies]
-rstest = "0.21.0"

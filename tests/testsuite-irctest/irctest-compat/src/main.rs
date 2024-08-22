@@ -1,7 +1,9 @@
 use std::{io::Read, sync::Arc};
 
-use cirque::{AnyListener, ServerState, TCPListener, WelcomeConfig};
 use clap::Parser;
+
+use cirque_core::{ServerState, WelcomeConfig};
+use cirque_server::{AnyListener, TCPListener};
 
 /// Simple program to greet a person
 #[derive(Parser, Debug)]
@@ -20,7 +22,7 @@ struct FileMOTDProvider {
     filename: String,
 }
 
-impl cirque::MOTDProvider for FileMOTDProvider {
+impl cirque_core::MOTDProvider for FileMOTDProvider {
     fn motd(&self) -> Option<Vec<Vec<u8>>> {
         let Ok(mut file) = std::fs::File::open(&self.filename) else {
             return None;
@@ -49,5 +51,5 @@ async fn main() -> anyhow::Result<()> {
 
     let server_state =
         ServerState::new(server_name, &welcome_config, motd_provider, password).shared();
-    cirque::run_server(AnyListener::Tcp(listener), server_state).await
+    cirque_server::run_server(AnyListener::Tcp(listener), server_state).await
 }

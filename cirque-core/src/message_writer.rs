@@ -26,16 +26,16 @@ impl Mailbox {
 }
 
 #[derive(Debug)]
-pub(crate) struct MailboxSink {
+pub struct MailboxSink {
     receiver: UnboundedReceiver<SerializedMessage>,
 }
 
 impl MailboxSink {
-    pub(crate) async fn recv(&mut self) -> Option<SerializedMessage> {
+    pub async fn recv(&mut self) -> Option<SerializedMessage> {
         self.receiver.recv().await
     }
 
-    pub(crate) fn try_recv(&mut self) -> Result<SerializedMessage, TryRecvError> {
+    pub fn try_recv(&mut self) -> Result<SerializedMessage, TryRecvError> {
         self.receiver.try_recv()
     }
 }

@@ -1,17 +1,16 @@
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-
-use crate::server_state::SharedServerState;
-use crate::transport::AnyStream;
-use crate::types::UserID;
+use crate::UserID;
 use crate::{client_to_server, ServerState};
-use cirque_parser::{LendingIterator, MessageIteratorError, StreamParser};
 
 #[derive(Debug)]
-struct RegisteringState {
+pub struct RegisteringState {
     user_id: UserID,
 }
 
 impl RegisteringState {
+    pub fn new(user_id: UserID) -> Self {
+        Self { user_id }
+    }
+
     fn handle_message(
         self,
         server_state: &mut ServerState,
@@ -70,7 +69,7 @@ impl RegisteringState {
 }
 
 #[derive(Debug)]
-struct RegisteredState {
+pub struct RegisteredState {
     user_id: UserID,
 }
 
@@ -193,14 +192,14 @@ impl RegisteredState {
 }
 
 #[derive(Debug)]
-enum SessionState {
+pub enum SessionState {
     Registering(RegisteringState),
     Registered(RegisteredState),
     Disconnected,
 }
 
 impl SessionState {
-    fn client_disconnected_voluntarily(&self) -> bool {
+    pub fn client_disconnected_voluntarily(&self) -> bool {
         match self {
             SessionState::Registering(_) => false,
             SessionState::Registered(_) => false,
@@ -208,7 +207,7 @@ impl SessionState {
         }
     }
 
-    fn handle_message(
+    pub fn handle_message(
         self,
         server_state: &mut ServerState,
         message: cirque_parser::Message,
@@ -222,85 +221,5 @@ impl SessionState {
             }
             SessionState::Disconnected => self,
         }
-    }
-}
-
-pub(crate) struct Session {
-    stream: AnyStream,
-}
-
-impl Session {
-    pub(crate) fn init(stream: AnyStream) -> Self {
-        Self { stream }
-    }
-
-    pub(crate) async fn run(mut self, server_state: SharedServerState) -> anyhow::Result<()> {
-        let mut stream_parser = StreamParser::default();
-
-        let (user_id, mut rx) = server_state.lock().unwrap().new_registering_user();
-        let mut state = SessionState::Registering(RegisteringState { user_id });
-
-        while !state.client_disconnected_voluntarily() {
-            tokio::select! {
-                result = self.stream.read_buf(&mut stream_parser) => {
-                    let received = result?;
-
-                    if received == 0 {
-                        break;
-                    }
-
-                    let mut iter = stream_parser.consume_iter();
-                    let mut reset_buffer = false;
-                    while let Some(message) = iter.next() {
-                        let message = match message {
-                            Ok(m) => m,
-                            Err(MessageIteratorError::BufferFullWithoutMessageError) => {
-                                reset_buffer = true;
-                                break;
-                            }
-                            Err(MessageIteratorError::ParsingError(e)) => {
-                                dbg!("weird message: {}", e);
-                                continue;
-                            }
-                        };
-
-                        let mut server_state = server_state.lock().unwrap();
-                        state = state.handle_message(&mut server_state, message);
-                    }
-                    if reset_buffer {
-                        stream_parser.clear();
-                    }
-                },
-                Some(msg) = rx.recv() => {
-                    self.stream.write_all(&msg).await?;
-                }
-            }
-        }
-
-        if state.client_disconnected_voluntarily() {
-            // the client sent a QUIT, handle the disconnection gracefully by sending remaining
-            // messages
-            let mut buf = std::io::Cursor::new(Vec::<u8>::new());
-            while let Ok(msg) = rx.try_recv() {
-                std::io::Write::write_all(&mut buf, &msg)?;
-            }
-            // TODO: maybe tolerate a timeout to send the last messages and then force quit
-            self.stream.write_all(&buf.into_inner()).await?;
-            //self.stream.flush().await?;
-        } else if let SessionState::Registering(_) = state {
-            // the connection was closed without notification
-            server_state
-                .lock()
-                .unwrap()
-                .ruser_disconnects_suddently(user_id);
-        } else if let SessionState::Registered(_) = state {
-            // the connection was closed without notification
-            server_state
-                .lock()
-                .unwrap()
-                .user_disconnects_suddently(user_id);
-        }
-
-        Ok(())
     }
 }

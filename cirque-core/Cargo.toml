@@ -1,0 +1,12 @@
+[package]
+name = "cirque-core"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { version = "1.39.0",features = ["rt-multi-thread", "macros", "net", "signal", "sync"] }
+uuid = { version = "1.10.0", features = ["v4"] }
+thiserror = "1.0.63"
+decancer = { version = "3.2.4", default-features = false, features = [] }
+
+cirque-parser = { path = "../cirque-parser" }

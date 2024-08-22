@@ -1,4 +1,5 @@
-use crate::server_state::SharedServerState;
+use cirque_core::SharedServerState;
+
 use crate::session::Session;
 use crate::transport::{AnyStream, Listener};
 use crate::AnyListener;

@@ -11,8 +11,8 @@ use crate::nickname::cure_nickname;
 use crate::server_to_client::{self, ChannelInfo, MessageContext, UserhostReply, WhoReply};
 use crate::types::RegisteringUser;
 use crate::types::UserID;
+use crate::types::WelcomeConfig;
 use crate::types::{Channel, ChannelUserMode};
-use crate::types::{ChannelID, WelcomeConfig};
 use crate::types::{ChannelMode, RegisteredUser};
 
 pub type SharedServerState = Arc<Mutex<ServerState>>;
@@ -140,7 +140,7 @@ pub struct ServerState {
     server_name: String,
     users: HashMap<UserID, RegisteredUser>,
     registering_users: HashMap<UserID, RegisteringUser>,
-    channels: HashMap<ChannelID, Channel>,
+    channels: HashMap<String, Channel>,
     welcome_config: WelcomeConfig,
     motd_provider: Arc<dyn MOTDProvider + Send + Sync>,
     password: Option<Vec<u8>>,
@@ -278,7 +278,7 @@ impl ServerState {
 
 /// Functions for registering users
 impl ServerState {
-    pub(crate) fn new_registering_user(&mut self) -> (UserID, MailboxSink) {
+    pub fn new_registering_user(&mut self) -> (UserID, MailboxSink) {
         let (user, rx) = RegisteringUser::new();
         let user_id = user.user_id;
         self.registering_users.insert(user.user_id, user);
@@ -381,7 +381,8 @@ impl ServerState {
         self.registering_users.remove(&user_id);
     }
 
-    pub(crate) fn ruser_disconnects_suddently(&mut self, user_id: UserID) {
+    // TODO: hide
+    pub fn ruser_disconnects_suddently(&mut self, user_id: UserID) {
         let user = &self.registering_users[&user_id];
         let reason = b"Disconnected suddently.";
 
@@ -564,7 +565,8 @@ impl ServerState {
         self.users.remove(&user_id);
     }
 
-    pub(crate) fn user_disconnects_suddently(&mut self, user_id: UserID) {
+    // TODO: hide
+    pub fn user_disconnects_suddently(&mut self, user_id: UserID) {
         let user = &self.users[&user_id];
         let reason = b"Disconnected suddently.";
 

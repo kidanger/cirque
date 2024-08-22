@@ -161,7 +161,8 @@ name = "chirc-compat"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "cirque",
+ "cirque-core",
+ "cirque-server",
  "clap",
  "tokio",
 ]
@@ -171,15 +172,24 @@ name = "cirque"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "cirque-parser",
- "decancer",
+ "cirque-core",
+ "cirque-server",
  "rstest",
  "rustls-pemfile",
- "thiserror",
  "tokio",
  "tokio-rustls",
- "uuid",
  "yaml-rust2",
+]
+
+[[package]]
+name = "cirque-core"
+version = "0.1.0"
+dependencies = [
+ "cirque-parser",
+ "decancer",
+ "thiserror",
+ "tokio",
+ "uuid",
 ]
 
 [[package]]
@@ -191,6 +201,18 @@ dependencies = [
  "nom",
  "slice-ring-buffer",
  "smallvec",
+]
+
+[[package]]
+name = "cirque-server"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "cirque-core",
+ "cirque-parser",
+ "rustls-pemfile",
+ "tokio",
+ "tokio-rustls",
 ]
 
 [[package]]
@@ -456,7 +478,8 @@ name = "irctest-compat"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "cirque",
+ "cirque-core",
+ "cirque-server",
  "clap",
  "tokio",
 ]

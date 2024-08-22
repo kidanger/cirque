@@ -1,7 +1,7 @@
 use crate::{
     message_writer::MessageWriter,
     server_state::ServerStateError,
-    types::{ChannelID, ChannelMode, ChannelUserMode, Topic},
+    types::{ChannelMode, ChannelUserMode, Topic},
     WelcomeConfig,
 };
 
@@ -33,7 +33,7 @@ pub(crate) struct WhoReply {
 }
 
 #[derive(Debug, Clone)]
-pub enum Message<'a> {
+pub(crate) enum Message<'a> {
     Welcome {
         nickname: &'a str,
         user_fullspec: &'a str,
