@@ -166,6 +166,7 @@ pub(crate) struct ChannelMode {
     secret: bool,
     topic_protected: bool,
     moderated: bool,
+    no_external: bool,
 }
 
 impl ChannelMode {
@@ -219,6 +220,24 @@ impl ChannelMode {
     pub(crate) fn without_moderated(&self) -> Self {
         Self {
             moderated: false,
+            ..self.clone()
+        }
+    }
+
+    pub(crate) fn is_no_external(&self) -> bool {
+        self.no_external
+    }
+
+    pub(crate) fn with_no_external(&self) -> Self {
+        Self {
+            no_external: true,
+            ..self.clone()
+        }
+    }
+
+    pub(crate) fn without_no_external(&self) -> Self {
+        Self {
+            no_external: false,
             ..self.clone()
         }
     }
@@ -287,20 +306,19 @@ impl Channel {
         user: &RegisteredUser,
         channel_name: &str,
     ) -> Result<(), ServerStateError> {
-        dbg!(&user);
-        dbg!(&self.mode);
         let user_id = &user.user_id;
 
-        let user_mode =
-            self.users
-                .get(user_id)
-                .ok_or_else(|| ServerStateError::CannotSendToChan {
-                    client: user.nickname.clone(),
-                    channel: channel_name.into(),
-                })?;
+        let user_mode = self.users.get(user_id);
+        let is_in_channel = user_mode.is_some();
 
-        dbg!(&user_mode);
+        if self.mode.is_no_external() && !is_in_channel {
+            return Err(ServerStateError::CannotSendToChan {
+                client: user.nickname.clone(),
+                channel: channel_name.into(),
+            });
+        }
 
+        let user_mode = user_mode.cloned().unwrap_or_default();
         if self.mode.is_moderated() && !(user_mode.is_op() || user_mode.is_voice()) {
             return Err(ServerStateError::CannotSendToChan {
                 client: user.nickname.to_string(),

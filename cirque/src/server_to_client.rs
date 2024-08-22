@@ -376,8 +376,7 @@ impl Message {
                 stream.write_all(b" ");
                 stream.write_all(channel.as_bytes());
                 stream.write_all(b" +");
-                if true {
-                    // all channels are "no external message" for now
+                if mode.is_no_external() {
                     stream.write_all(b"n");
                 }
                 if mode.is_secret() {

@@ -786,6 +786,8 @@ impl ServerState {
             "-t" => new_channel_mode = new_channel_mode.without_topic_protected(),
             "+m" => new_channel_mode = new_channel_mode.with_moderated(),
             "-m" => new_channel_mode = new_channel_mode.without_moderated(),
+            "+n" => new_channel_mode = new_channel_mode.with_no_external(),
+            "-n" => new_channel_mode = new_channel_mode.without_no_external(),
             "+o" | "+v" => {
                 let target = param.unwrap();
                 let target_user_id = lookup_user(target)?;
