@@ -234,9 +234,7 @@ impl Session {
     pub(crate) async fn run(mut self, server_state: SharedServerState) -> anyhow::Result<()> {
         let mut stream_parser = StreamParser::default();
 
-        let (user, mut rx) = RegisteringUser::new();
-        let user_id = user.user_id;
-        server_state.lock().unwrap().ruser_connects(user);
+        let (user_id, mut rx) = server_state.lock().unwrap().new_registering_user();
         let mut state = SessionState::Registering(RegisteringState { user_id });
 
         while !state.client_disconnected_voluntarily() {

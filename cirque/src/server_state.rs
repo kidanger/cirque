@@ -4,6 +4,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use thiserror::Error;
+use tokio::sync::mpsc::UnboundedReceiver;
 
 use crate::client_to_server::{ListFilter, ListOperation, ListOption, MessageDecodingError};
 use crate::server_to_client::{self, ChannelInfo, MessageContext, UserhostReply, WhoReply};
@@ -244,8 +245,11 @@ impl ServerState {
 
 /// Functions for registering users
 impl ServerState {
-    pub(crate) fn ruser_connects(&mut self, user: RegisteringUser) {
+    pub(crate) fn new_registering_user(&mut self) -> (UserID, UnboundedReceiver<Vec<u8>>) {
+        let (user, rx) = RegisteringUser::new();
+        let user_id = user.user_id;
         self.registering_users.insert(user.user_id, user);
+        (user_id, rx)
     }
 
     pub(crate) fn ruser_sends_invalid_message(
