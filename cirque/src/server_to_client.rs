@@ -216,7 +216,7 @@ impl Message {
                     stream.write_all(context.server_name.as_bytes());
                     stream.write_all(b" 005 ");
                     stream.write_all(nickname.as_bytes());
-                    stream.write_all(b" CASEMAPPING=ascii :are supported by this server\r\n");
+                    stream.write_all(b" CASEMAPPING=rfc7613 :are supported by this server\r\n");
                 }
             }
             Message::Join {

@@ -172,6 +172,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "cirque-parser",
+ "decancer",
  "rstest",
  "rustls-pemfile",
  "thiserror",
@@ -237,6 +238,15 @@ name = "colorchoice"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d3fd119d74b830634cea2a0f58bbd0d54540518a14397557951e79340abc28c0"
+
+[[package]]
+name = "decancer"
+version = "3.2.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "58bf04658e77cbb82c3c8b64d094e3d2bc75d4e182b0425a51196e5614108270"
+dependencies = [
+ "paste",
+]
 
 [[package]]
 name = "encoding_rs"

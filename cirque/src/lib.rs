@@ -1,5 +1,6 @@
 mod client_to_server;
 mod message_pool;
+mod nickname;
 mod server;
 mod server_state;
 mod server_to_client;

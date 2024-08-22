@@ -78,7 +78,7 @@ impl RegisteringUser {
     }
 
     pub(crate) fn send(&self, message: &server_to_client::Message, context: &MessageContext) {
-        crate::message_pool::MessagePool::ingest_into_channel(message, &self.mailbox, &context);
+        crate::message_pool::MessagePool::ingest_into_channel(message, &self.mailbox, context);
     }
 
     pub(crate) fn maybe_nickname(&self) -> String {
@@ -211,6 +211,7 @@ pub(crate) struct Channel {
     pub(crate) users: HashMap<UserID, ChannelUserMode>,
     pub(crate) mode: ChannelMode,
 }
+
 impl Channel {
     pub(crate) fn ensure_user_can_set_topic(
         &self,

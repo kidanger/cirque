@@ -21,6 +21,7 @@ yaml-rust2 = "0.8.1"
 cirque-parser = { path = "../cirque-parser" }
 uuid = { version = "1.10.0", features = ["v4"] }
 thiserror = "1.0.63"
+decancer = { version = "3.2.4", default-features = false, features = [] }
 
 [dev-dependencies]
 rstest = "0.21.0"

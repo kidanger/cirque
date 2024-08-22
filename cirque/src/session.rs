@@ -2,7 +2,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::server_state::SharedServerState;
 use crate::transport::AnyStream;
-use crate::types::{RegisteringUser, UserID};
+use crate::types::UserID;
 use crate::{client_to_server, ServerState};
 use cirque_parser::{LendingIterator, MessageIteratorError, StreamParser};
 

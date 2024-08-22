@@ -7,6 +7,7 @@ use thiserror::Error;
 use tokio::sync::mpsc::UnboundedReceiver;
 
 use crate::client_to_server::{ListFilter, ListOperation, ListOption, MessageDecodingError};
+use crate::nickname::cure_nickname;
 use crate::server_to_client::{self, ChannelInfo, MessageContext, UserhostReply, WhoReply};
 use crate::types::RegisteredUser;
 use crate::types::RegisteringUser;
@@ -91,7 +92,7 @@ impl ServerStateError {
         Ok(())
     }
 
-    pub(crate) fn from_decoding_error_with_client(
+    fn from_decoding_error_with_client(
         err: MessageDecodingError,
         client: String,
     ) -> Option<ServerStateError> {
@@ -200,20 +201,30 @@ impl ServerState {
             });
         }
 
+        let Some(cured) = cure_nickname(nickname) else {
+            return Err(ServerStateError::ErroneousNickname {
+                client: client.to_string(),
+                nickname: nickname.into(),
+            });
+        };
+
         let another_user_has_same_nick = self
             .users
             .values()
             .filter(|u| Some(u.user_id) != user_id)
-            .any(|u| u.nickname.eq_ignore_ascii_case(nickname));
+            .any(|u| {
+                cure_nickname(&u.nickname)
+                    .unwrap()
+                    .eq_ignore_ascii_case(&cured)
+            });
         let another_ruser_has_same_nick = self
             .registering_users
             .values()
             .filter(|u| Some(u.user_id) != user_id)
             .any(|u| {
-                u.nickname
-                    .as_deref()
-                    .unwrap_or_default()
-                    .eq_ignore_ascii_case(nickname)
+                decancer::cure!(u.nickname.as_deref().unwrap_or_default())
+                    .unwrap()
+                    .eq_ignore_ascii_case(&decancer::cure!(nickname).unwrap())
             });
 
         if another_user_has_same_nick || another_ruser_has_same_nick {
@@ -1209,4 +1220,63 @@ fn validate_channel_name(
         });
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Debug)]
+    struct FixedMOTDProvider(Option<String>);
+
+    impl MOTDProvider for FixedMOTDProvider {
+        fn motd(&self) -> Option<Vec<Vec<u8>>> {
+            self.0.as_ref().map(|motd| vec![motd.as_bytes().to_vec()])
+        }
+    }
+
+    fn new_server_state() -> ServerState {
+        let welcome_config = WelcomeConfig::default();
+        let motd_provider = FixedMOTDProvider(None).into();
+        ServerState::new("srv", &welcome_config, motd_provider, None)
+    }
+
+    #[test]
+    fn test_nick_change_same() -> anyhow::Result<()> {
+        let mut server_state = new_server_state();
+        let nick1 = "test";
+
+        let (user1, _rx1) = server_state.new_registering_user();
+        server_state.ruser_uses_nick(user1, "jester")?;
+        server_state.ruser_uses_username(user1, nick1, nick1.as_bytes());
+        assert!(server_state.check_ruser_registration_state(user1).unwrap());
+
+        let (user2, _rx2) = server_state.new_registering_user();
+        server_state.ruser_uses_nick(user2, nick1)?;
+        server_state.ruser_uses_username(user2, nick1, nick1.as_bytes());
+        assert!(server_state.check_ruser_registration_state(user2).unwrap());
+
+        server_state.user_changes_nick(user1, nick1).unwrap_err();
+        Ok(())
+    }
+
+    #[test]
+    fn test_nick_change_homoglyph() -> anyhow::Result<()> {
+        let mut server_state = new_server_state();
+        let nick1 = "test";
+        let nick2 = "tėst";
+
+        let (user1, _rx1) = server_state.new_registering_user();
+        server_state.ruser_uses_nick(user1, "jester")?;
+        server_state.ruser_uses_username(user1, nick1, nick1.as_bytes());
+        assert!(server_state.check_ruser_registration_state(user1).unwrap());
+
+        let (user2, _rx2) = server_state.new_registering_user();
+        server_state.ruser_uses_nick(user2, nick1)?;
+        server_state.ruser_uses_username(user2, nick1, nick1.as_bytes());
+        assert!(server_state.check_ruser_registration_state(user2).unwrap());
+
+        server_state.user_changes_nick(user1, nick2).unwrap_err();
+        Ok(())
+    }
 }
