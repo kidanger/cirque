@@ -15,4 +15,4 @@ cirque-core = { path = "../cirque-core" }
 cirque-server = { path = "../cirque-server" }
 
 [dev-dependencies]
-rstest = "0.21.0"
+rstest = "0.22.0"
