@@ -68,7 +68,7 @@ pub enum ServerStateError {
 }
 
 impl ServerStateError {
-    pub(crate) fn write_to<'b>(&self, mut m: OnGoingMessage<'b>) -> OnGoingMessage<'b> {
+    pub(crate) fn write_to<'b, 'c>(&self, mut m: OnGoingMessage<'b, 'c>) -> OnGoingMessage<'b, 'c> {
         match self {
             ServerStateError::UnknownError {
                 client,

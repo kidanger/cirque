@@ -1,4 +1,4 @@
-use std::io::Write;
+use std::{io::Write, marker::PhantomData};
 
 use tokio::sync::mpsc::{error::TryRecvError, UnboundedReceiver, UnboundedSender};
 
@@ -47,42 +47,30 @@ pub(crate) struct MessageWriter<'m> {
     mailbox: &'m Mailbox,
 }
 
-impl MessageWriter<'_> {
-    pub(crate) fn new_message(&self) -> OnGoingMessage {
+impl<'m> MessageWriter<'m> {
+    /// Implementation note: it is not necessary to have a &mut self here,
+    /// but it allows to ensure that there are only one OnGoingMessage at a time.
+    /// It makes it harder to send IRC messages in the wrong order.
+    pub(crate) fn new_message<'w>(&'w mut self) -> OnGoingMessage<'m, 'w> {
         let buf = vec![0_u8; IRC_MESSAGE_MAX_SIZE].into();
         let buf = std::io::Cursor::new(buf);
         OnGoingMessage {
             buf,
             mailbox: self.mailbox,
+            phantom: PhantomData,
         }
     }
 }
 
+/// Owner MUST call validate() after writing in order to send the message to the mailbox.
 #[must_use]
-pub(crate) struct OnGoingMessage<'m> {
+pub(crate) struct OnGoingMessage<'m, 'w> {
     buf: std::io::Cursor<Box<[u8]>>,
     mailbox: &'m Mailbox,
+    phantom: PhantomData<&'w mut MessageWriter<'m>>,
 }
 
-macro_rules! message {
-    ($s:expr, $($args:expr),*) => {{
-        let mut m = $s.new_message();
-        $(
-            m = m.write($args);
-        )*
-        m.validate();
-    }}
-}
-
-macro_rules! message_push {
-    ($m:ident, $($args:expr),*) => {{
-        $(
-            $m = $m.write($args);
-        )*
-    }}
-}
-
-impl OnGoingMessage<'_> {
+impl OnGoingMessage<'_, '_> {
     #[inline]
     pub(crate) fn write<T>(mut self, bytes: &T) -> Self
     where
@@ -111,6 +99,24 @@ impl OnGoingMessage<'_> {
     }
 }
 
+macro_rules! message {
+    ($s:expr, $($args:expr),*) => {{
+        let mut m = $s.new_message();
+        $(
+            m = m.write($args);
+        )*
+        m.validate();
+    }}
+}
+
+macro_rules! message_push {
+    ($m:ident, $($args:expr),*) => {{
+        $(
+            $m = $m.write($args);
+        )*
+    }}
+}
+
 #[cfg(test)]
 mod tests {
     use super::{Mailbox, MessageWriter};
@@ -125,7 +131,7 @@ mod tests {
     #[test]
     fn test_1message() {
         let (mailbox, mut sink) = Mailbox::new();
-        let mw = MessageWriter { mailbox: &mailbox };
+        let mut mw = MessageWriter { mailbox: &mailbox };
         message!(mw, &"test");
         let msg = sink.try_recv().unwrap();
         assert_eq!(String::from_utf8(msg).unwrap(), "test\r\n");
@@ -135,7 +141,7 @@ mod tests {
     #[test]
     fn test_2message() {
         let (mailbox, mut sink) = Mailbox::new();
-        let mw = MessageWriter { mailbox: &mailbox };
+        let mut mw = MessageWriter { mailbox: &mailbox };
 
         message!(mw, b"ta", b"2");
         message!(mw, b"toto");

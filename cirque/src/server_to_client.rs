@@ -240,26 +240,27 @@ impl Message {
             }
             Message::Names { names, nickname } => {
                 for (channel, channel_mode, nicknames) in names {
-                    let mut m = stream
-                        .new_message()
-                        .write(b":")
-                        .write(&context.server_name)
-                        .write(b" 353 ")
-                        .write(&nickname)
-                        .write(match channel_mode.is_secret() {
+                    let mut m = stream.new_message();
+                    message_push!(
+                        m,
+                        b":",
+                        &context.server_name,
+                        b" 353 ",
+                        &nickname,
+                        match channel_mode.is_secret() {
                             true => b" @ ",
                             false => b" = ",
-                        })
-                        .write(&channel)
-                        .write(b" :");
-
+                        },
+                        &channel,
+                        b" :"
+                    );
                     for (i, (nick, user_mode)) in nicknames.iter().enumerate() {
                         if user_mode.is_op() {
                             m = m.write(b"@");
                         } else if user_mode.is_voice() {
                             m = m.write(b"+");
                         }
-                        m = m.write(&nick.as_bytes());
+                        m = m.write(&nick);
                         if i != nicknames.len() - 1 {
                             m = m.write(b" ")
                         }
@@ -369,16 +370,10 @@ impl Message {
                 modechar,
                 param,
             } => {
-                let mut m = stream
-                    .new_message()
-                    .write(b":")
-                    .write(&user_fullspec)
-                    .write(b" MODE ")
-                    .write(&target)
-                    .write(b" ")
-                    .write(&modechar.as_bytes());
+                let mut m = stream.new_message();
+                message_push!(m, b":", &user_fullspec, b" MODE ", &target, b" ", &modechar);
                 if let Some(param) = param {
-                    m = m.write(b" ").write(&param.as_bytes());
+                    message_push!(m, b" ", &param);
                 }
                 m.validate();
             }
@@ -582,14 +577,16 @@ impl Message {
                 channel,
                 reason,
             } => {
-                let mut m = stream
-                    .new_message()
-                    .write(b":")
-                    .write(&user_fullspec.as_bytes())
-                    .write(b" PART ")
-                    .write(&channel.as_bytes());
+                let mut m = stream.new_message();
+                message_push!(
+                    m,
+                    b":",
+                    &user_fullspec.as_bytes(),
+                    b" PART ",
+                    &channel.as_bytes()
+                );
                 if let Some(reason) = reason {
-                    m = m.write(b" :").write(&reason);
+                    message_push!(m, b" :", &reason);
                 }
                 m.validate();
             }
@@ -628,8 +625,7 @@ impl Message {
                     &context.server_name,
                     b" 323 ",
                     &client,
-                    b" ",
-                    b":End of LIST"
+                    b" :End of LIST"
                 );
             }
             Message::NowAway { nickname } => {
@@ -670,13 +666,8 @@ impl Message {
                 );
             }
             Message::RplUserhost { nickname, info } => {
-                let mut m = stream
-                    .new_message()
-                    .write(b":")
-                    .write(&context.server_name.as_bytes())
-                    .write(b" 302 ")
-                    .write(&nickname.as_bytes())
-                    .write(b" :");
+                let mut m = stream.new_message();
+                message_push!(m, b":", &context.server_name, b" 302 ", &nickname, b" :");
                 for (
                     i,
                     UserhostReply {
@@ -745,6 +736,7 @@ impl Message {
                 );
 
                 // don't send RPL_WHOISCHANNELS, for privacy reasons
+                // (also because the implementation is not done)
                 if false {
                     message!(
                         stream,
@@ -803,9 +795,9 @@ impl Message {
                     let mut m = stream.new_message();
                     message_push!(m, b":", &context.server_name, b" 352 ", &client, b" ");
                     if let Some(channel) = channel {
-                        message_push!(m, &channel.as_bytes());
+                        message_push!(m, &channel);
                     } else {
-                        message_push!(m, &"*".to_string().as_bytes());
+                        message_push!(m, b"*");
                     }
                     message_push!(
                         m,
@@ -851,7 +843,7 @@ impl Message {
                 message!(stream, b":", &user_fullspec, b" QUIT :", &reason);
             }
             Message::FatalError { reason } => {
-                message!(stream, b"ERROR :", &reason);
+                message!(stream, b":", &context.server_name, b"ERROR :", &reason);
             }
             Message::Err(err) => {
                 let mut m = stream.new_message();
