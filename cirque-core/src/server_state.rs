@@ -1289,7 +1289,7 @@ mod tests {
     }
 
     #[test]
-    fn test_nick_change_same() -> anyhow::Result<()> {
+    fn test_nick_change_same() -> Result<(), ServerStateError> {
         let mut server_state = new_server_state();
         let nick1 = "test";
 
@@ -1308,7 +1308,7 @@ mod tests {
     }
 
     #[test]
-    fn test_nick_change_homoglyph() -> anyhow::Result<()> {
+    fn test_nick_change_homoglyph() -> Result<(), ServerStateError> {
         let mut server_state = new_server_state();
         let nick1 = "test";
         let nick2 = "tėst";
