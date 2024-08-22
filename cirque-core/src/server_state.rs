@@ -1077,7 +1077,7 @@ impl ServerState {
         };
 
         let channel_info_list = channels
-            .into_iter()
+            .iter()
             .filter(|(_, channel)| {
                 !channel.mode.is_secret() || channel.users.contains_key(&user_id)
             })
@@ -1094,9 +1094,9 @@ impl ServerState {
                 is_valid
             })
             .map(|(channel_name, channel)| ChannelInfo {
+                name: &channel_name,
                 count: channel.users.len(),
-                name: channel_name.clone(),
-                topic: channel.topic.content.clone(),
+                topic: &channel.topic.content,
             })
             .collect::<Vec<_>>();
 
@@ -1130,10 +1130,10 @@ impl ServerState {
         for nick in nicknames {
             if let Some(user) = self.users.values().find(|&u| &u.nickname == nick) {
                 let reply = UserhostReply {
-                    nickname: user.nickname.clone(),
+                    nickname: &user.nickname,
                     is_op: false, // no one is OP for now
                     is_away: user.is_away(),
-                    hostname: user.shown_hostname().into(),
+                    hostname: user.shown_hostname(),
                 };
                 replies.push(reply);
             }
@@ -1184,14 +1184,14 @@ impl ServerState {
                 for (user_id, user_mode) in &channel.users {
                     let user = &self.users[user_id];
                     let reply = WhoReply {
-                        channel: Some(channel_name.to_string()),
-                        channel_user_mode: Some(user_mode.clone()),
-                        nickname: user.nickname.clone(),
+                        channel: Some(channel_name),
+                        channel_user_mode: Some(user_mode),
+                        nickname: &user.nickname,
                         is_op: false,
                         is_away: user.is_away(),
-                        hostname: user.shown_hostname().into(),
-                        username: user.username.clone(),
-                        realname: user.realname.clone(),
+                        hostname: user.shown_hostname(),
+                        username: &user.username,
+                        realname: &user.realname,
                     };
                     replies.push(reply);
                 }
@@ -1200,12 +1200,12 @@ impl ServerState {
                 let reply = WhoReply {
                     channel: None,
                     channel_user_mode: None,
-                    nickname: user.nickname.clone(),
+                    nickname: &user.nickname,
                     is_op: false,
                     is_away: user.is_away(),
-                    hostname: user.shown_hostname().into(),
-                    username: user.username.clone(),
-                    realname: user.realname.clone(),
+                    hostname: user.shown_hostname(),
+                    username: &user.username,
+                    realname: &user.realname,
                 };
                 replies.push(reply);
             }
@@ -1215,12 +1215,12 @@ impl ServerState {
                         let reply = WhoReply {
                             channel: None,
                             channel_user_mode: None,
-                            nickname: user.nickname.clone(),
+                            nickname: &user.nickname,
                             is_op: false,
                             is_away: user.is_away(),
-                            hostname: user.shown_hostname().into(),
-                            username: user.username.clone(),
-                            realname: user.realname.clone(),
+                            hostname: user.shown_hostname(),
+                            username: &user.username,
+                            realname: &user.realname,
                         };
                         replies.push(reply);
                     }

@@ -6,30 +6,30 @@ use crate::{
 };
 
 #[derive(Debug, Clone)]
-pub(crate) struct ChannelInfo {
-    pub name: String,
+pub(crate) struct ChannelInfo<'a> {
+    pub name: &'a str,
     pub count: usize,
-    pub topic: Vec<u8>,
+    pub topic: &'a [u8],
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct UserhostReply {
-    pub(crate) nickname: String,
+pub(crate) struct UserhostReply<'a> {
+    pub(crate) nickname: &'a str,
     pub(crate) is_op: bool,
     pub(crate) is_away: bool,
-    pub(crate) hostname: String,
+    pub(crate) hostname: &'a str,
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct WhoReply {
-    pub(crate) channel: Option<String>,
-    pub(crate) channel_user_mode: Option<ChannelUserMode>,
-    pub(crate) nickname: String,
+pub(crate) struct WhoReply<'a> {
+    pub(crate) channel: Option<&'a str>,
+    pub(crate) channel_user_mode: Option<&'a ChannelUserMode>,
+    pub(crate) nickname: &'a str,
     pub(crate) is_op: bool,
     pub(crate) is_away: bool,
-    pub(crate) hostname: String,
-    pub(crate) username: String,
-    pub(crate) realname: Vec<u8>,
+    pub(crate) hostname: &'a str,
+    pub(crate) username: &'a str,
+    pub(crate) realname: &'a [u8],
 }
 
 #[derive(Debug, Clone)]
@@ -115,7 +115,7 @@ pub(crate) enum Message<'a> {
     },
     List {
         client: &'a str,
-        infos: &'a [ChannelInfo],
+        infos: &'a [ChannelInfo<'a>],
     },
     NowAway {
         client: &'a str,
@@ -131,7 +131,7 @@ pub(crate) enum Message<'a> {
     },
     RplUserhost {
         client: &'a str,
-        info: &'a [UserhostReply],
+        info: &'a [UserhostReply<'a>],
     },
     RplWhois {
         client: &'a str,
@@ -149,7 +149,7 @@ pub(crate) enum Message<'a> {
     Who {
         client: &'a str,
         mask: &'a str,
-        replies: &'a [WhoReply],
+        replies: &'a [WhoReply<'a>],
     },
     Quit {
         user_fullspec: &'a str,
@@ -181,7 +181,7 @@ impl Message<'_> {
                     b" 001 ",
                     nickname,
                     b" :Welcome to the Internet Relay Network ",
-                    &user_fullspec
+                    user_fullspec
                 );
 
                 message! {
@@ -200,7 +200,7 @@ impl Message<'_> {
                     b":",
                     sv,
                     b" 003 ",
-                    &nickname,
+                    nickname,
                     b" :This server was created <datetime>."
                 };
 
@@ -209,7 +209,7 @@ impl Message<'_> {
                     b":",
                     sv,
                     b" 004 ",
-                    &nickname,
+                    nickname,
                     b" ",
                     sv,
                     b" 0 a a"
@@ -222,7 +222,7 @@ impl Message<'_> {
                         b":",
                         sv,
                         b" 005 ",
-                        &nickname,
+                        nickname,
                         b" CASEMAPPING=rfc7613 :are supported by this server"
                     };
                 }
@@ -231,13 +231,13 @@ impl Message<'_> {
                 channel,
                 user_fullspec,
             } => {
-                message!(stream, b":", &user_fullspec, b" JOIN ", &channel, b"");
+                message!(stream, b":", user_fullspec, b" JOIN ", &channel, b"");
             }
             Message::Nick {
                 previous_user_fullspec,
                 nickname,
             } => {
-                message!(stream, b":", &previous_user_fullspec, b" NICK :", nickname);
+                message!(stream, b":", previous_user_fullspec, b" NICK :", nickname);
             }
             Message::Names { names, client } => {
                 for (channel, channel_mode, nicknames) in names {
@@ -347,7 +347,7 @@ impl Message<'_> {
                 message!(
                     stream,
                     b":",
-                    &user_fullspec,
+                    user_fullspec,
                     b" TOPIC ",
                     channel,
                     b" :",
@@ -364,7 +364,7 @@ impl Message<'_> {
                 param,
             } => {
                 let mut m = stream.new_message();
-                message_push!(m, b":", &user_fullspec, b" MODE ", target, b" ", modechar);
+                message_push!(m, b":", user_fullspec, b" MODE ", target, b" ", modechar);
                 if let Some(param) = param {
                     message_push!(m, b" ", param);
                 }
@@ -425,7 +425,7 @@ impl Message<'_> {
                     );
 
                     for line in motd {
-                        message!(stream, b":", sv, b" 372 ", client, b" :- ", &line);
+                        message!(stream, b":", sv, b" 372 ", client, b" :- ", line);
                     }
 
                     message!(stream, b":", sv, b" 376 ", client, b" :End of MOTD command");
@@ -436,7 +436,7 @@ impl Message<'_> {
                         b":",
                         sv,
                         b" 422 ",
-                        &client,
+                        client,
                         b" :MOTD File is missing"
                     );
                 }
@@ -548,15 +548,7 @@ impl Message<'_> {
             Message::List { client, infos } => {
                 // chirc test suite doesn't like 321
                 if false {
-                    message!(
-                        stream,
-                        b":",
-                        sv,
-                        b" 321 ",
-                        client,
-                        b" ",
-                        b"Channel :Users  Name"
-                    );
+                    message!(stream, b":", sv, b" 321 ", client, b" Channel :Users  Name");
                 }
 
                 for info in *infos {
@@ -691,9 +683,9 @@ impl Message<'_> {
                         b":",
                         sv,
                         b" 319 ",
-                        &client,
+                        client,
                         b" ",
-                        &target_nickname,
+                        target_nickname,
                         b" :" // list of channels would go here
                     );
                 }
@@ -703,9 +695,9 @@ impl Message<'_> {
                     b":",
                     sv,
                     b" 318 ",
-                    &client,
+                    client,
                     b" ",
-                    &target_nickname,
+                    target_nickname,
                     b" :End of /WHOIS list"
                 );
             }
