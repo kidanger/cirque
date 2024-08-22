@@ -274,7 +274,6 @@ impl Message {
                 }
             }
             Message::EndOfNames { nickname, channel } => {
-                stream.write_all(b"\r\n");
                 stream.write_all(b":");
                 stream.write_all(context.server_name.as_bytes());
                 stream.write_all(b" 366 ");
@@ -664,6 +663,18 @@ impl Message {
                 stream.write_all(realname);
                 stream.write_all(b"\r\n");
 
+                // don't send RPL_WHOISCHANNELS, for privacy reasons
+                if false {
+                    stream.write_all(b":");
+                    stream.write_all(context.server_name.as_bytes());
+                    stream.write_all(b" 319 ");
+                    stream.write_all(client.as_bytes());
+                    stream.write_all(b" ");
+                    stream.write_all(target_nickname.as_bytes());
+                    stream.write_all(b" :"); // list of channels goes here
+                    stream.write_all(b"\r\n");
+                }
+
                 stream.write_all(b":");
                 stream.write_all(context.server_name.as_bytes());
                 stream.write_all(b" 318 ");
@@ -733,7 +744,7 @@ impl Message {
                         if channel_user_mode.is_op() {
                             stream.write_all(b"@");
                         } else if channel_user_mode.is_voice() {
-                            stream.write_all(b"v");
+                            stream.write_all(b"+");
                         }
                     }
                     stream.write_all(b" :0 ");

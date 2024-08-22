@@ -161,12 +161,23 @@ impl ChannelUserMode {
     }
 }
 
-#[derive(Debug, Clone, Default, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub(crate) struct ChannelMode {
     secret: bool,
     topic_protected: bool,
     moderated: bool,
     no_external: bool,
+}
+
+impl Default for ChannelMode {
+    fn default() -> Self {
+        Self {
+            secret: Default::default(),
+            topic_protected: Default::default(),
+            moderated: Default::default(),
+            no_external: true,
+        }
+    }
 }
 
 impl ChannelMode {

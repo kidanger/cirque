@@ -31,6 +31,10 @@ if __name__ == "__main__":
         "MOTD",
         "AWAY",
         "LIST",
+        "LIST_TOPIC",
+        "LIST_VOICE",
+        "MODES_TOPIC",
+        "BASIC_CHANNEL_OPERATOR",
 
         # disabled:
         # "ERR_UNKNOWN",
@@ -41,6 +45,15 @@ if __name__ == "__main__":
         #   because it allows optional target channel
         # "CHANNEL_TOPIC",
         #   because it doesn't accept RPL_TOPICWHOTIME 333
+        # "LUSERS",
+        #   because it expects a different string
+        # "WHO", "WHOIS*", "MODES", "BASIC_MODE"
+        #   because tests need OP
+        #   or assume some specific string formatting
+        #   or require invisible users
+        #   or do not agree on the exact error code
+
+        # ROBUST?
     ]:
         subprocess.run(
             [

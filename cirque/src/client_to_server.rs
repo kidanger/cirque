@@ -168,7 +168,8 @@ impl TryFrom<&cirque_parser::Message<'_>> for Message {
                     } else {
                         None
                     };
-                    Message::ChangeModeChannel(target, str(change.to_vec())?, param)
+                    let modechar = str(change.to_vec())?;
+                    Message::ChangeModeChannel(target, modechar, param)
                 } else {
                     Message::AskModeChannel(target)
                 }

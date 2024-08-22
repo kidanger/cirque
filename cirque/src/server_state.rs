@@ -9,11 +9,11 @@ use tokio::sync::mpsc::UnboundedReceiver;
 use crate::client_to_server::{ListFilter, ListOperation, ListOption, MessageDecodingError};
 use crate::nickname::cure_nickname;
 use crate::server_to_client::{self, ChannelInfo, MessageContext, UserhostReply, WhoReply};
-use crate::types::RegisteredUser;
 use crate::types::RegisteringUser;
 use crate::types::UserID;
 use crate::types::{Channel, ChannelUserMode};
 use crate::types::{ChannelID, WelcomeConfig};
+use crate::types::{ChannelMode, RegisteredUser};
 
 pub type SharedServerState = Arc<Mutex<ServerState>>;
 
@@ -143,6 +143,7 @@ pub struct ServerState {
     motd_provider: Arc<dyn MOTDProvider + Send + Sync>,
     password: Option<Vec<u8>>,
     message_context: MessageContext,
+    default_channel_mode: ChannelMode,
 }
 
 impl ServerState {
@@ -166,6 +167,7 @@ impl ServerState {
             message_context: server_to_client::MessageContext {
                 server_name: server_name.to_string(),
             },
+            default_channel_mode: ChannelMode::default().with_no_external(),
         }
     }
 
@@ -390,6 +392,7 @@ impl ServerState {
         }
 
         let user_mode = if channel.users.is_empty() {
+            channel.mode = self.default_channel_mode.clone();
             ChannelUserMode::default().with_op()
         } else {
             ChannelUserMode::default()
@@ -779,6 +782,7 @@ impl ServerState {
         };
 
         let mut new_channel_mode = channel.mode.clone();
+        // TODO handle multiple modechars
         match modechar {
             "+s" => new_channel_mode = new_channel_mode.with_secret(),
             "-s" => new_channel_mode = new_channel_mode.without_secret(),
@@ -789,7 +793,12 @@ impl ServerState {
             "+n" => new_channel_mode = new_channel_mode.with_no_external(),
             "-n" => new_channel_mode = new_channel_mode.without_no_external(),
             "+o" | "+v" => {
-                let target = param.unwrap();
+                let Some(target) = param else {
+                    return Err(ServerStateError::NeedMoreParams {
+                        client: user.nickname.clone(),
+                        command: "MODE".to_string(),
+                    });
+                };
                 let target_user_id = lookup_user(target)?;
                 let cur_target_mode = channel.users.get_mut(&target_user_id).unwrap();
                 let new_target_mode = match modechar {
@@ -812,7 +821,12 @@ impl ServerState {
                 }
             }
             "-o" | "-v" => {
-                let target = param.unwrap();
+                let Some(target) = param else {
+                    return Err(ServerStateError::NeedMoreParams {
+                        client: user.nickname.clone(),
+                        command: "MODE".to_string(),
+                    });
+                };
                 let target_user_id = lookup_user(target)?;
                 let cur_target_mode = channel.users.get_mut(&target_user_id).unwrap();
                 let new_target_mode = match modechar {
@@ -835,9 +849,11 @@ impl ServerState {
                 }
             }
             _ => {
+                // remove the + or -
+                let letters = modechar.chars().skip(1).collect();
                 return Err(ServerStateError::UnknownMode {
                     client: user.nickname.clone(),
-                    modechar: modechar.to_string(),
+                    modechar: letters,
                 });
             }
         }
