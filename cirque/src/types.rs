@@ -1,8 +1,7 @@
 use std::collections::HashMap;
 
-use tokio::sync::mpsc::UnboundedReceiver;
-
 use crate::{
+    message_writer::{Mailbox, MailboxSink},
     server_state::ServerStateError,
     server_to_client::{self, MessageContext},
 };
@@ -25,13 +24,12 @@ pub struct RegisteredUser {
     pub(crate) username: String,
     pub(crate) realname: Vec<u8>,
     pub(crate) away_message: Option<Vec<u8>>,
-    // maybe this shouldn't be in User
-    mailbox: tokio::sync::mpsc::UnboundedSender<Vec<u8>>,
+    mailbox: Mailbox,
 }
 
 impl RegisteredUser {
     pub(crate) fn send(&self, message: &server_to_client::Message, context: &MessageContext) {
-        crate::message_pool::MessagePool::ingest_into_channel(message, &self.mailbox, context);
+        self.mailbox.ingest(message, context);
     }
 
     pub(crate) fn shown_hostname(&self) -> &str {
@@ -59,26 +57,26 @@ pub(crate) struct RegisteringUser {
     pub(crate) username: Option<String>,
     pub(crate) realname: Option<Vec<u8>>,
     pub(crate) password: Option<Vec<u8>>,
-    mailbox: tokio::sync::mpsc::UnboundedSender<Vec<u8>>,
+    mailbox: Mailbox,
 }
 
 impl RegisteringUser {
-    pub(crate) fn new() -> (Self, UnboundedReceiver<Vec<u8>>) {
+    pub(crate) fn new() -> (Self, MailboxSink) {
         let user_id = UserID::generate();
-        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        let (mailbox, mailbox_sink) = Mailbox::new();
         let user = Self {
             user_id,
             nickname: None,
             username: None,
             realname: None,
             password: None,
-            mailbox: tx,
+            mailbox,
         };
-        (user, rx)
+        (user, mailbox_sink)
     }
 
     pub(crate) fn send(&self, message: &server_to_client::Message, context: &MessageContext) {
-        crate::message_pool::MessagePool::ingest_into_channel(message, &self.mailbox, context);
+        self.mailbox.ingest(message, context);
     }
 
     pub(crate) fn maybe_nickname(&self) -> String {
