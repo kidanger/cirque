@@ -4,6 +4,8 @@ use tokio::sync::mpsc::{error::TryRecvError, UnboundedReceiver, UnboundedSender}
 
 use crate::server_to_client::{Message, MessageContext};
 
+const IRC_MESSAGE_MAX_SIZE: usize = 512;
+
 pub(crate) type SerializedMessage = Vec<u8>;
 
 #[derive(Debug)]
@@ -47,7 +49,7 @@ pub(crate) struct MessageWriter<'m> {
 
 impl MessageWriter<'_> {
     pub(crate) fn new_message(&self) -> OnGoingMessage {
-        let buf = vec![0_u8; 512].into_boxed_slice();
+        let buf = vec![0_u8; IRC_MESSAGE_MAX_SIZE].into();
         let buf = std::io::Cursor::new(buf);
         OnGoingMessage {
             buf,
@@ -86,13 +88,16 @@ impl OnGoingMessage<'_> {
     where
         T: AsRef<[u8]>,
     {
+        // might fail if the message goes beyond IRC_MESSAGE_MAX_SIZE bytes
+        // but this is OK, the write fails and validate() will overwrite
+        // the last bytes by the end-of-line markers
         let _ = self.buf.write_all(bytes.as_ref());
         self
     }
 
     pub(crate) fn validate(mut self) {
         // cut at 510 bytes and add new lines
-        let pos = self.buf.position().min(510);
+        let pos = self.buf.position().min((IRC_MESSAGE_MAX_SIZE - 2) as u64);
         self.buf.set_position(pos);
         let _ = self.buf.write_all(b"\r\n");
 
