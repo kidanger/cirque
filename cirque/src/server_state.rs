@@ -177,7 +177,25 @@ impl ServerState {
         &self.server_name
     }
 
-    pub(crate) fn shared(self) -> SharedServerState {
+    pub fn set_server_name(&mut self, server_name: &str) {
+        self.server_name = server_name.to_string();
+        self.message_context = server_to_client::MessageContext {
+            server_name: server_name.to_string(),
+        };
+    }
+
+    pub fn set_password(&mut self, password: Option<&[u8]>) {
+        self.password = password.map(|s| s.into());
+    }
+
+    pub fn set_motd_provider<MP>(&mut self, motd_provider: Arc<MP>)
+    where
+        MP: MOTDProvider + Send + Sync + 'static,
+    {
+        self.motd_provider = motd_provider;
+    }
+
+    pub fn shared(self) -> SharedServerState {
         Arc::new(Mutex::new(self))
     }
 

@@ -11,6 +11,7 @@ mod types;
 
 pub use server::run_server;
 pub use server_state::{MOTDProvider, ServerState};
+pub use transport::AnyListener;
 pub use transport::TCPListener;
 pub use transport::TLSListener;
 pub use types::WelcomeConfig;

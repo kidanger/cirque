@@ -140,3 +140,17 @@ impl Listener for TLSListener {
         Ok(AnyStream::new(stream))
     }
 }
+
+pub enum AnyListener {
+    Tls(TLSListener),
+    Tcp(TCPListener),
+}
+
+impl Listener for AnyListener {
+    async fn accept(&self) -> anyhow::Result<AnyStream> {
+        match self {
+            AnyListener::Tls(l) => l.accept().await,
+            AnyListener::Tcp(l) => l.accept().await,
+        }
+    }
+}

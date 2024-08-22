@@ -1,6 +1,6 @@
 use std::{io::Read, sync::Arc};
 
-use cirque::{ServerState, TCPListener, WelcomeConfig};
+use cirque::{AnyListener, ServerState, TCPListener, WelcomeConfig};
 use clap::Parser;
 
 /// Simple program to greet a person
@@ -43,6 +43,6 @@ async fn main() -> anyhow::Result<()> {
         filename: "motd.txt".to_string(),
     });
 
-    let server_state = ServerState::new(server_name, &welcome_config, motd_provider, None);
-    cirque::run_server(listener, server_state).await
+    let server_state = ServerState::new(server_name, &welcome_config, motd_provider, None).shared();
+    cirque::run_server(AnyListener::Tcp(listener), server_state).await
 }

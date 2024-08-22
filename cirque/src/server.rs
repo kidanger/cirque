@@ -1,25 +1,32 @@
-use crate::server_state::ServerState;
+use crate::server_state::SharedServerState;
 use crate::session::Session;
-use crate::transport::Listener;
+use crate::transport::{AnyStream, Listener};
+use crate::AnyListener;
 
-pub async fn run_server(listener: impl Listener, server_state: ServerState) -> anyhow::Result<()> {
-    let server_state = server_state.shared();
+fn handle_client(server_state: SharedServerState, stream: anyhow::Result<AnyStream>) {
+    let fut = async move {
+        // wait until we are in the async task to throw the error
+        let stream = stream?;
+        let stream = stream.with_debug();
+        Session::init(stream).run(server_state).await?;
 
+        dbg!("client dropped");
+        anyhow::Ok(())
+    };
+
+    tokio::spawn(async move {
+        if let Err(err) = fut.await {
+            eprintln!("{:?}", err);
+        }
+    });
+}
+
+pub async fn run_server(
+    listener: AnyListener,
+    server_state: SharedServerState,
+) -> anyhow::Result<()> {
     loop {
-        let server_state = server_state.clone();
         let stream = listener.accept().await;
-        let fut = async move {
-            let stream = stream?;
-            let stream = stream.with_debug();
-            Session::init(stream).run(server_state).await?;
-            dbg!("client dropped");
-            anyhow::Ok(())
-        };
-
-        tokio::spawn(async move {
-            if let Err(err) = fut.await {
-                eprintln!("{:?}", err);
-            }
-        });
+        handle_client(server_state.clone(), stream);
     }
 }

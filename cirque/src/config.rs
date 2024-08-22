@@ -1,4 +1,8 @@
-use std::{fs, path::PathBuf, str::FromStr};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    str::FromStr,
+};
 
 use yaml_rust2::{Yaml, YamlLoader};
 
@@ -29,7 +33,7 @@ impl Config {
         Config::load_from_yaml(docs)
     }
 
-    pub fn load_from_path(in_path: &PathBuf) -> Result<Self, anyhow::Error> {
+    pub fn load_from_path(in_path: &Path) -> Result<Self, anyhow::Error> {
         let string = fs::read_to_string(in_path)?;
         Config::load_from_str(string.as_str())
     }

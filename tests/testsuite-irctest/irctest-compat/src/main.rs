@@ -1,6 +1,6 @@
 use std::{io::Read, sync::Arc};
 
-use cirque::{ServerState, TCPListener, WelcomeConfig};
+use cirque::{AnyListener, ServerState, TCPListener, WelcomeConfig};
 use clap::Parser;
 
 /// Simple program to greet a person
@@ -47,6 +47,7 @@ async fn main() -> anyhow::Result<()> {
     });
     let password = args.password.map(|p| p.as_bytes().into());
 
-    let server_state = ServerState::new(server_name, &welcome_config, motd_provider, password);
-    cirque::run_server(listener, server_state).await
+    let server_state =
+        ServerState::new(server_name, &welcome_config, motd_provider, password).shared();
+    cirque::run_server(AnyListener::Tcp(listener), server_state).await
 }
