@@ -1,6 +1,7 @@
 #[macro_use]
 mod message_writer;
 mod client_to_server;
+mod error;
 mod nickname;
 mod server_state;
 mod server_to_client;

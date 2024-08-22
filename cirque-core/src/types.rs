@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
 use crate::{
+    error::ServerStateError,
     message_writer::{Mailbox, MailboxSink},
-    server_state::ServerStateError,
     server_to_client::{self, MessageContext},
 };
 

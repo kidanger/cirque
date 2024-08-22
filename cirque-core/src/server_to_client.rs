@@ -1,6 +1,5 @@
 use crate::{
     message_writer::MessageWriter,
-    server_state::ServerStateError,
     types::{ChannelMode, ChannelUserMode, Topic},
     WelcomeConfig,
 };
@@ -158,7 +157,7 @@ pub(crate) enum Message<'a> {
     FatalError {
         reason: &'a [u8],
     },
-    Err(ServerStateError),
+    Err(crate::error::ServerStateError),
 }
 
 pub(crate) struct MessageContext {
