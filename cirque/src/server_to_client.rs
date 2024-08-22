@@ -843,7 +843,7 @@ impl Message {
                 message!(stream, b":", &user_fullspec, b" QUIT :", &reason);
             }
             Message::FatalError { reason } => {
-                message!(stream, b":", &context.server_name, b"ERROR :", &reason);
+                message!(stream, b":", &context.server_name, b" ERROR :", &reason);
             }
             Message::Err(err) => {
                 let mut m = stream.new_message();
