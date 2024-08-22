@@ -338,7 +338,9 @@ impl Message {
                 stream.write_all(b"\r\n");
             }
             Message::Pong { token } => {
-                stream.write_all(b"PONG ");
+                stream.write_all(b":");
+                stream.write_all(context.server_name.as_bytes());
+                stream.write_all(b" PONG ");
                 stream.write_all(context.server_name.as_bytes());
                 stream.write_all(b" :");
                 stream.write_all(token);
