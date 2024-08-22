@@ -621,24 +621,25 @@ impl ServerState {
         maybe_channel.into_iter().chain(maybe_user).next()
     }
 
-    pub(crate) fn user_messages_target(&mut self, user_id: UserID, target: &str, content: &[u8]) {
+    pub(crate) fn user_messages_target(
+        &mut self,
+        user_id: UserID,
+        target: &str,
+        content: &[u8],
+    ) -> Result<(), ServerStateError> {
         let user = &self.users[&user_id];
 
         if content.is_empty() {
-            let message = server_to_client::Message::Err(ServerStateError::NoTextToSend {
+            return Err(ServerStateError::NoTextToSend {
                 client: user.nickname.clone(),
             });
-            user.send(&message, &self.message_context);
-            return;
         }
 
         let Some(obj) = self.lookup_target(target) else {
-            let message = server_to_client::Message::Err(ServerStateError::NoSuchNick {
+            return Err(ServerStateError::NoSuchNick {
                 client: user.nickname.to_string(),
                 target: target.to_string(),
             });
-            user.send(&message, &self.message_context);
-            return;
         };
 
         let message = server_to_client::Message::PrivMsg {
@@ -649,15 +650,7 @@ impl ServerState {
 
         match obj {
             LookupResult::Channel(_, channel) => {
-                if !channel.users.contains_key(&user_id) {
-                    let message =
-                        server_to_client::Message::Err(ServerStateError::CannotSendToChan {
-                            client: user.nickname.to_string(),
-                            channel: target.to_string(),
-                        });
-                    user.send(&message, &self.message_context);
-                    return;
-                }
+                channel.ensure_user_can_send_message(user, target)?;
 
                 channel
                     .users
@@ -678,6 +671,8 @@ impl ServerState {
                 }
             }
         }
+
+        Ok(())
     }
 
     pub(crate) fn user_notices_target(&mut self, user_id: UserID, target: &str, content: &[u8]) {
@@ -701,7 +696,7 @@ impl ServerState {
 
         match obj {
             LookupResult::Channel(_, channel) => {
-                if !channel.users.contains_key(&user_id) {
+                if channel.ensure_user_can_send_message(user, target).is_err() {
                     // NOTICE shouldn't receive an error
                     return;
                 }
@@ -783,11 +778,14 @@ impl ServerState {
             Ok(user_id)
         };
 
+        let mut new_channel_mode = channel.mode.clone();
         match modechar {
-            "+s" => channel.mode = channel.mode.with_secret(),
-            "-s" => channel.mode = channel.mode.without_secret(),
-            "+t" => channel.mode = channel.mode.with_topic_protected(),
-            "-t" => channel.mode = channel.mode.without_topic_protected(),
+            "+s" => new_channel_mode = new_channel_mode.with_secret(),
+            "-s" => new_channel_mode = new_channel_mode.without_secret(),
+            "+t" => new_channel_mode = new_channel_mode.with_topic_protected(),
+            "-t" => new_channel_mode = new_channel_mode.without_topic_protected(),
+            "+m" => new_channel_mode = new_channel_mode.with_moderated(),
+            "-m" => new_channel_mode = new_channel_mode.without_moderated(),
             "+o" | "+v" => {
                 let target = param.unwrap();
                 let target_user_id = lookup_user(target)?;
@@ -839,6 +837,21 @@ impl ServerState {
                     client: user.nickname.clone(),
                     modechar: modechar.to_string(),
                 });
+            }
+        }
+
+        if new_channel_mode != channel.mode {
+            channel.mode = new_channel_mode;
+
+            let message = server_to_client::Message::Mode {
+                user_fullspec: user.fullspec(),
+                target: channel_name.to_string(),
+                modechar: modechar.to_string(),
+                param: None,
+            };
+            for user_id in channel.users.keys() {
+                let user = &self.users[user_id];
+                user.send(&message, &self.message_context);
             }
         }
 

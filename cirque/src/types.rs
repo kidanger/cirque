@@ -161,10 +161,11 @@ impl ChannelUserMode {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Eq, PartialEq)]
 pub(crate) struct ChannelMode {
     secret: bool,
     topic_protected: bool,
+    moderated: bool,
 }
 
 impl ChannelMode {
@@ -200,6 +201,24 @@ impl ChannelMode {
     pub(crate) fn without_topic_protected(&self) -> Self {
         Self {
             topic_protected: false,
+            ..self.clone()
+        }
+    }
+
+    pub fn is_moderated(&self) -> bool {
+        self.moderated
+    }
+
+    pub(crate) fn with_moderated(&self) -> Self {
+        Self {
+            moderated: true,
+            ..self.clone()
+        }
+    }
+
+    pub(crate) fn without_moderated(&self) -> Self {
+        Self {
+            moderated: false,
             ..self.clone()
         }
     }
@@ -256,6 +275,35 @@ impl Channel {
         if !user_mode.is_op() {
             return Err(ServerStateError::ChanOpPrivsNeeded {
                 client: user.nickname.clone(),
+                channel: channel_name.to_string(),
+            });
+        }
+
+        Ok(())
+    }
+
+    pub(crate) fn ensure_user_can_send_message(
+        &self,
+        user: &RegisteredUser,
+        channel_name: &str,
+    ) -> Result<(), ServerStateError> {
+        dbg!(&user);
+        dbg!(&self.mode);
+        let user_id = &user.user_id;
+
+        let user_mode =
+            self.users
+                .get(user_id)
+                .ok_or_else(|| ServerStateError::CannotSendToChan {
+                    client: user.nickname.clone(),
+                    channel: channel_name.into(),
+                })?;
+
+        dbg!(&user_mode);
+
+        if self.mode.is_moderated() && !(user_mode.is_op() || user_mode.is_voice()) {
+            return Err(ServerStateError::CannotSendToChan {
+                client: user.nickname.to_string(),
                 channel: channel_name.to_string(),
             });
         }

@@ -383,6 +383,9 @@ impl Message {
                 if mode.is_secret() {
                     stream.write_all(b"s");
                 }
+                if mode.is_moderated() {
+                    stream.write_all(b"m");
+                }
                 if mode.is_topic_protected() {
                     stream.write_all(b"t");
                 }

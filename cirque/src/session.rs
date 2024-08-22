@@ -141,7 +141,10 @@ impl RegisteredState {
                 return SessionState::Disconnected {};
             }
             client_to_server::Message::PrivMsg(target, content) => {
-                server_state.user_messages_target(self.user_id, &target, &content);
+                if let Err(err) = server_state.user_messages_target(self.user_id, &target, &content)
+                {
+                    server_state.send_error(self.user_id, err);
+                }
             }
             client_to_server::Message::Notice(target, content) => {
                 server_state.user_notices_target(self.user_id, &target, &content);

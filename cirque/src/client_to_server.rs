@@ -155,7 +155,6 @@ impl TryFrom<&cirque_parser::Message<'_>> for Message {
                 let mut target = str(opt(message.first_parameter_as_vec())?)?;
 
                 // for now we will assume that the target is a channel
-                // TODO: fix this
                 if !target.starts_with('#') {
                     return Err(MessageDecodingError::NoRecipient {
                         command: str(message.command().into())?,
