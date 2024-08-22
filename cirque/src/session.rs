@@ -111,7 +111,7 @@ impl RegisteredState {
             client_to_server::Message::Part(channels, reason) => {
                 for channel in channels {
                     if let Err(err) =
-                        server_state.user_leaves_channel(self.user_id, &channel, &reason)
+                        server_state.user_leaves_channel(self.user_id, &channel, reason.as_deref())
                     {
                         server_state.send_error(self.user_id, err);
                     }

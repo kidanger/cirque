@@ -33,73 +33,73 @@ pub(crate) struct WhoReply {
 }
 
 #[derive(Debug, Clone)]
-pub enum Message {
+pub enum Message<'a> {
     Welcome {
-        nickname: String,
-        user_fullspec: String,
-        welcome_config: WelcomeConfig,
+        nickname: &'a str,
+        user_fullspec: &'a str,
+        welcome_config: &'a WelcomeConfig,
     },
     Join {
-        channel: ChannelID,
-        user_fullspec: String,
+        channel: &'a str,
+        user_fullspec: &'a str,
     },
     Nick {
-        previous_user_fullspec: String,
-        nickname: String,
+        previous_user_fullspec: &'a str,
+        nickname: &'a str,
     },
     Names {
-        nickname: String,
-        names: Vec<(ChannelID, ChannelMode, Vec<(String, ChannelUserMode)>)>,
+        client: &'a str,
+        names: Vec<(&'a str, &'a ChannelMode, Vec<(String, ChannelUserMode)>)>,
     },
     /// only used on NAMES command when the channel is invalid or does not exist
     EndOfNames {
-        nickname: String,
-        channel: String,
+        client: &'a str,
+        channel: &'a str,
     },
     /// reply to a GetTopic command or Join command
     RplTopic {
-        nickname: String,
-        channel: String,
-        topic: Option<Topic>,
+        client: &'a str,
+        channel: &'a str,
+        topic: Option<&'a Topic>,
     },
     /// reply to SetTopic by the user or another user
     Topic {
-        user_fullspec: String,
-        channel: String,
-        topic: Topic,
+        user_fullspec: &'a str,
+        channel: &'a str,
+        topic: &'a Topic,
     },
     Pong {
-        token: Vec<u8>,
+        token: &'a [u8],
     },
     Mode {
-        user_fullspec: String,
-        target: String,
-        modechar: String,
-        param: Option<String>,
+        user_fullspec: &'a str,
+        target: &'a str,
+        modechar: &'a str,
+        param: Option<&'a str>,
     },
     /// only as a reply to AskChannelMode
     ChannelMode {
-        nickname: String,
-        channel: ChannelID,
-        mode: ChannelMode,
+        client: &'a str,
+        channel: &'a str,
+        mode: &'a ChannelMode,
     },
     PrivMsg {
-        from_user: String,
-        target: ChannelID,
-        content: Vec<u8>,
+        from_user: &'a str,
+        target: &'a str,
+        content: &'a [u8],
     },
     Notice {
-        from_user: String,
-        target: ChannelID,
-        content: Vec<u8>,
+        from_user: &'a str,
+        target: &'a str,
+        content: &'a [u8],
     },
     #[allow(clippy::upper_case_acronyms)]
     MOTD {
-        nickname: String,
+        client: &'a str,
         motd: Option<Vec<Vec<u8>>>,
     },
     LUsers {
-        nickname: String,
+        client: &'a str,
         n_operators: usize,
         n_unknown_connections: usize,
         n_channels: usize,
@@ -109,54 +109,54 @@ pub enum Message {
         extra_info: bool,
     },
     Part {
-        user_fullspec: String,
-        channel: String,
-        reason: Option<Vec<u8>>,
+        user_fullspec: &'a str,
+        channel: &'a str,
+        reason: Option<&'a [u8]>,
     },
     List {
-        client: String,
-        infos: Vec<ChannelInfo>,
+        client: &'a str,
+        infos: &'a [ChannelInfo],
     },
     NowAway {
-        nickname: String,
+        client: &'a str,
     },
     UnAway {
-        nickname: String,
+        client: &'a str,
     },
     /// When someone sends a message to an away user or on WHOIS
     RplAway {
-        nickname: String,
-        target_nickname: String,
-        away_message: Vec<u8>,
+        client: &'a str,
+        target_nickname: &'a str,
+        away_message: &'a [u8],
     },
     RplUserhost {
-        nickname: String,
-        info: Vec<UserhostReply>,
+        client: &'a str,
+        info: &'a [UserhostReply],
     },
     RplWhois {
-        client: String,
-        target_nickname: String,
-        away_message: Option<Vec<u8>>,
-        hostname: String,
-        username: String,
-        realname: Vec<u8>,
+        client: &'a str,
+        target_nickname: &'a str,
+        away_message: Option<&'a [u8]>,
+        hostname: &'a str,
+        username: &'a str,
+        realname: &'a [u8],
     },
     /// when the WHOIS resulted in an error, we still need to write the RPL_ENDOFWHOIS
     RplEndOfWhois {
-        client: String,
-        target_nickname: String,
+        client: &'a str,
+        target_nickname: &'a str,
     },
     Who {
-        client: String,
-        mask: String,
-        replies: Vec<WhoReply>,
+        client: &'a str,
+        mask: &'a str,
+        replies: &'a [WhoReply],
     },
     Quit {
-        user_fullspec: String,
-        reason: Vec<u8>,
+        user_fullspec: &'a str,
+        reason: &'a [u8],
     },
     FatalError {
-        reason: Vec<u8>,
+        reason: &'a [u8],
     },
     Err(ServerStateError),
 }
@@ -165,8 +165,9 @@ pub(crate) struct MessageContext {
     pub(crate) server_name: String,
 }
 
-impl Message {
+impl Message<'_> {
     pub(crate) fn write_to(&self, stream: &mut MessageWriter, context: &MessageContext) {
+        let sv = &context.server_name;
         match self {
             Message::Welcome {
                 nickname,
@@ -176,9 +177,9 @@ impl Message {
                 message!(
                     stream,
                     b":",
-                    &context.server_name,
+                    sv,
                     b" 001 ",
-                    &nickname,
+                    nickname,
                     b" :Welcome to the Internet Relay Network ",
                     &user_fullspec
                 );
@@ -186,18 +187,18 @@ impl Message {
                 message! {
                     stream,
                     b":",
-                    &context.server_name,
+                    sv,
                     b" 002 ",
                     nickname,
                     b" :Your host is '",
-                    &context.server_name,
+                    sv,
                     b"', running cirque."
                 };
 
                 message! {
                     stream,
                     b":",
-                    &context.server_name,
+                    sv,
                     b" 003 ",
                     &nickname,
                     b" :This server was created <datetime>."
@@ -206,11 +207,11 @@ impl Message {
                 message! {
                     stream,
                     b":",
-                    &context.server_name,
+                    sv,
                     b" 004 ",
                     &nickname,
                     b" ",
-                    &context.server_name,
+                    sv,
                     b" 0 a a"
                 };
 
@@ -219,7 +220,7 @@ impl Message {
                     message! {
                         stream,
                         b":",
-                        &context.server_name,
+                        sv,
                         b" 005 ",
                         &nickname,
                         b" CASEMAPPING=rfc7613 :are supported by this server"
@@ -236,17 +237,17 @@ impl Message {
                 previous_user_fullspec,
                 nickname,
             } => {
-                message!(stream, b":", &previous_user_fullspec, b" NICK :", &nickname);
+                message!(stream, b":", &previous_user_fullspec, b" NICK :", nickname);
             }
-            Message::Names { names, nickname } => {
+            Message::Names { names, client } => {
                 for (channel, channel_mode, nicknames) in names {
                     let mut m = stream.new_message();
                     message_push!(
                         m,
                         b":",
-                        &context.server_name,
+                        sv,
                         b" 353 ",
-                        &nickname,
+                        client,
                         match channel_mode.is_secret() {
                             true => b" @ ",
                             false => b" = ",
@@ -270,29 +271,29 @@ impl Message {
                     message!(
                         stream,
                         b":",
-                        &context.server_name,
+                        sv,
                         b" 366 ",
-                        &nickname,
+                        client,
                         b" ",
-                        &channel,
+                        channel,
                         b" :End of NAMES list"
                     );
                 }
             }
-            Message::EndOfNames { nickname, channel } => {
+            Message::EndOfNames { client, channel } => {
                 message!(
                     stream,
                     b":",
-                    &context.server_name,
+                    sv,
                     b" 366 ",
-                    &nickname,
+                    client,
                     b" ",
-                    &channel,
+                    channel,
                     b" :End of NAMES list"
                 );
             }
             Message::RplTopic {
-                nickname,
+                client,
                 channel,
                 topic,
             } => {
@@ -300,13 +301,13 @@ impl Message {
                     message!(
                         stream,
                         b":",
-                        &context.server_name,
+                        sv,
                         b" 332 ",
-                        &nickname,
+                        client,
                         b" ",
-                        &channel,
+                        channel,
                         b" :",
-                        &&topic.content
+                        &topic.content
                     );
 
                     // irctest requires the RPL_TOPICWHOTIME, but chirch doesn't want it
@@ -314,11 +315,11 @@ impl Message {
                         message!(
                             stream,
                             b":",
-                            &context.server_name,
+                            sv,
                             b" 333 ",
-                            &nickname,
+                            client,
                             b" ",
-                            &channel,
+                            channel,
                             b" ",
                             &topic.from_nickname,
                             b" ",
@@ -329,11 +330,11 @@ impl Message {
                     message!(
                         stream,
                         b":",
-                        &context.server_name,
+                        sv,
                         b" 331 ",
-                        &nickname,
+                        client,
                         b" ",
-                        &channel,
+                        channel,
                         b" :No topic is set"
                     );
                 }
@@ -348,21 +349,13 @@ impl Message {
                     b":",
                     &user_fullspec,
                     b" TOPIC ",
-                    &channel,
+                    channel,
                     b" :",
-                    &&topic.content
+                    &topic.content
                 );
             }
             Message::Pong { token } => {
-                message!(
-                    stream,
-                    b":",
-                    &context.server_name,
-                    b" PONG ",
-                    &context.server_name,
-                    b" :",
-                    &token
-                );
+                message!(stream, b":", sv, b" PONG ", sv, b" :", token);
             }
             Message::Mode {
                 user_fullspec,
@@ -371,28 +364,19 @@ impl Message {
                 param,
             } => {
                 let mut m = stream.new_message();
-                message_push!(m, b":", &user_fullspec, b" MODE ", &target, b" ", &modechar);
+                message_push!(m, b":", &user_fullspec, b" MODE ", target, b" ", modechar);
                 if let Some(param) = param {
-                    message_push!(m, b" ", &param);
+                    message_push!(m, b" ", param);
                 }
                 m.validate();
             }
             Message::ChannelMode {
-                nickname,
+                client,
                 channel,
                 mode,
             } => {
                 let mut m = stream.new_message();
-                message_push!(
-                    m,
-                    b":",
-                    &context.server_name,
-                    b" 324 ",
-                    &nickname,
-                    b" ",
-                    &channel,
-                    b" +"
-                );
+                message_push!(m, b":", sv, b" 324 ", client, b" ", channel, b" +");
                 if mode.is_no_external() {
                     m = m.write(b"n");
                 }
@@ -415,11 +399,11 @@ impl Message {
                 message!(
                     stream,
                     b":",
-                    &from_user,
+                    from_user,
                     b" PRIVMSG ",
-                    &target,
+                    target,
                     b" :",
-                    &content
+                    content
                 );
             }
             Message::Notice {
@@ -427,61 +411,38 @@ impl Message {
                 target,
                 content,
             } => {
-                message!(
-                    stream,
-                    b":",
-                    &from_user,
-                    b" NOTICE ",
-                    &target,
-                    b" :",
-                    &content
-                );
+                message!(stream, b":", from_user, b" NOTICE ", target, b" :", content);
             }
-            Message::MOTD { nickname, motd } => match motd {
+            Message::MOTD { client, motd } => match motd {
                 Some(motd) => {
                     message!(
                         stream,
                         b":",
-                        &context.server_name,
+                        sv,
                         b" 375 ",
-                        &nickname,
+                        client,
                         b" :- <server> Message of the day - "
                     );
 
                     for line in motd {
-                        message!(
-                            stream,
-                            b":",
-                            &context.server_name,
-                            b" 372 ",
-                            &nickname,
-                            b" :- ",
-                            &line
-                        );
+                        message!(stream, b":", sv, b" 372 ", client, b" :- ", &line);
                     }
 
-                    message!(
-                        stream,
-                        b":",
-                        &context.server_name,
-                        b" 376 ",
-                        &nickname,
-                        b" :End of MOTD command"
-                    );
+                    message!(stream, b":", sv, b" 376 ", client, b" :End of MOTD command");
                 }
                 None => {
                     message!(
                         stream,
                         b":",
-                        &context.server_name,
+                        sv,
                         b" 422 ",
-                        &nickname,
+                        &client,
                         b" :MOTD File is missing"
                     );
                 }
             },
             Message::LUsers {
-                nickname,
+                client,
                 n_operators,
                 n_unknown_connections,
                 n_channels,
@@ -492,9 +453,9 @@ impl Message {
                 message!(
                     stream,
                     b":",
-                    &context.server_name,
+                    sv,
                     b" 251 ",
-                    &nickname,
+                    client,
                     b" :There are ",
                     &n_clients.to_string(),
                     b" users and 0 invisible on 1 servers"
@@ -503,9 +464,9 @@ impl Message {
                 message!(
                     stream,
                     b":",
-                    &context.server_name,
+                    sv,
                     b" 252 ",
-                    &nickname,
+                    client,
                     b" ",
                     &n_operators.to_string(),
                     b" :operator(s) online"
@@ -514,9 +475,9 @@ impl Message {
                 message!(
                     stream,
                     b":",
-                    &context.server_name,
+                    sv,
                     b" 253 ",
-                    &nickname,
+                    client,
                     b" ",
                     &n_unknown_connections.to_string(),
                     b" :unknown connection(s)"
@@ -525,9 +486,9 @@ impl Message {
                 message!(
                     stream,
                     b":",
-                    &context.server_name,
+                    sv,
                     b" 254 ",
-                    &nickname,
+                    client,
                     b" ",
                     &n_channels.to_string(),
                     b" :channels formed"
@@ -536,9 +497,9 @@ impl Message {
                 message!(
                     stream,
                     b":",
-                    &context.server_name,
+                    sv,
                     b" 255 ",
-                    &nickname,
+                    client,
                     b" :I have ",
                     &n_clients.to_string(),
                     b" clients and ",
@@ -550,9 +511,9 @@ impl Message {
                     message!(
                         stream,
                         b":",
-                        &context.server_name,
+                        sv,
                         b" 265 ",
-                        &nickname,
+                        client,
                         b" :Current local users  ",
                         &n_clients.to_string(),
                         b" , max ",
@@ -562,9 +523,9 @@ impl Message {
                     message!(
                         stream,
                         b":",
-                        &context.server_name,
+                        sv,
                         b" 266 ",
-                        &nickname,
+                        client,
                         b" :Current global users  ",
                         &n_clients.to_string(),
                         b" , max ",
@@ -578,15 +539,9 @@ impl Message {
                 reason,
             } => {
                 let mut m = stream.new_message();
-                message_push!(
-                    m,
-                    b":",
-                    &user_fullspec.as_bytes(),
-                    b" PART ",
-                    &channel.as_bytes()
-                );
+                message_push!(m, b":", user_fullspec, b" PART ", channel);
                 if let Some(reason) = reason {
-                    message_push!(m, b" :", &reason);
+                    message_push!(m, b" :", reason);
                 }
                 m.validate();
             }
@@ -596,21 +551,21 @@ impl Message {
                     message!(
                         stream,
                         b":",
-                        &context.server_name,
+                        sv,
                         b" 321 ",
-                        &client,
+                        client,
                         b" ",
                         b"Channel :Users  Name"
                     );
                 }
 
-                for info in infos {
+                for info in *infos {
                     message!(
                         stream,
                         b":",
-                        &context.server_name,
+                        sv,
                         b" 322 ",
-                        &client,
+                        client,
                         b" ",
                         &info.name,
                         b" ",
@@ -619,55 +574,48 @@ impl Message {
                         &info.topic
                     );
                 }
-                message!(
-                    stream,
-                    b":",
-                    &context.server_name,
-                    b" 323 ",
-                    &client,
-                    b" :End of LIST"
-                );
+                message!(stream, b":", sv, b" 323 ", &client, b" :End of LIST");
             }
-            Message::NowAway { nickname } => {
+            Message::NowAway { client } => {
                 message!(
                     stream,
                     b":",
-                    &context.server_name,
+                    sv,
                     b" 306 ",
-                    &nickname,
+                    client,
                     b" :You have been marked as being away"
                 );
             }
-            Message::UnAway { nickname } => {
+            Message::UnAway { client } => {
                 message!(
                     stream,
                     b":",
-                    &context.server_name,
+                    sv,
                     b" 305 ",
-                    &nickname,
+                    client,
                     b" :You are no longer marked as being away"
                 );
             }
             Message::RplAway {
-                nickname,
+                client,
                 target_nickname,
                 away_message,
             } => {
                 message!(
                     stream,
                     b":",
-                    &context.server_name,
+                    sv,
                     b" 301 ",
-                    &nickname,
+                    client,
                     b" ",
-                    &target_nickname,
+                    target_nickname,
                     b" :",
-                    &away_message
+                    away_message
                 );
             }
-            Message::RplUserhost { nickname, info } => {
+            Message::RplUserhost { client, info } => {
                 let mut m = stream.new_message();
-                message_push!(m, b":", &context.server_name, b" 302 ", &nickname, b" :");
+                message_push!(m, b":", sv, b" 302 ", client, b" :");
                 for (
                     i,
                     UserhostReply {
@@ -678,7 +626,7 @@ impl Message {
                     },
                 ) in info.iter().enumerate()
                 {
-                    message_push!(m, &nickname.as_bytes());
+                    message_push!(m, nickname);
                     if *is_op {
                         message_push!(m, b"*");
                     }
@@ -689,7 +637,7 @@ impl Message {
                             true => b"-",
                             false => b"+",
                         },
-                        &hostname.as_bytes()
+                        hostname
                     );
                     if i != info.len() - 1 {
                         message_push!(m, b" ");
@@ -709,30 +657,30 @@ impl Message {
                     message!(
                         stream,
                         b":",
-                        &context.server_name,
+                        sv,
                         b" 301 ",
-                        &client,
+                        client,
                         b" ",
-                        &target_nickname,
+                        target_nickname,
                         b" :",
-                        &away_message
+                        away_message
                     );
                 }
 
                 message!(
                     stream,
                     b":",
-                    &context.server_name,
+                    sv,
                     b" 311 ",
-                    &client,
+                    client,
                     b" ",
-                    &target_nickname,
+                    target_nickname,
                     b" ",
-                    &username,
+                    username,
                     b" ",
-                    &hostname,
+                    hostname,
                     b" * :",
-                    &realname
+                    realname
                 );
 
                 // don't send RPL_WHOISCHANNELS, for privacy reasons
@@ -741,7 +689,7 @@ impl Message {
                     message!(
                         stream,
                         b":",
-                        &context.server_name,
+                        sv,
                         b" 319 ",
                         &client,
                         b" ",
@@ -753,7 +701,7 @@ impl Message {
                 message!(
                     stream,
                     b":",
-                    &context.server_name,
+                    sv,
                     b" 318 ",
                     &client,
                     b" ",
@@ -768,11 +716,11 @@ impl Message {
                 message!(
                     stream,
                     b":",
-                    &context.server_name,
+                    sv,
                     b" 318 ",
-                    &client,
+                    client,
                     b" ",
-                    &target_nickname,
+                    target_nickname,
                     b" :End of /WHOIS list"
                 );
             }
@@ -790,25 +738,25 @@ impl Message {
                     hostname,
                     username,
                     realname,
-                } in replies
+                } in *replies
                 {
                     let mut m = stream.new_message();
-                    message_push!(m, b":", &context.server_name, b" 352 ", &client, b" ");
+                    message_push!(m, b":", sv, b" 352 ", client, b" ");
                     if let Some(channel) = channel {
-                        message_push!(m, &channel);
+                        message_push!(m, channel);
                     } else {
                         message_push!(m, b"*");
                     }
                     message_push!(
                         m,
                         b" ",
-                        &username,
+                        username,
                         b" ",
-                        &hostname,
+                        hostname,
                         b" ",
-                        &context.server_name,
+                        sv,
                         b" ",
-                        &nickname,
+                        nickname,
                         b" ",
                         if *is_away { b"G" } else { b"H" }
                     );
@@ -822,17 +770,17 @@ impl Message {
                             message_push!(m, b"+");
                         }
                     }
-                    message_push!(m, b" :0 ", &realname);
+                    message_push!(m, b" :0 ", realname);
                     m.validate();
                 }
                 message!(
                     stream,
                     b":",
-                    &context.server_name,
+                    sv,
                     b" 315 ",
-                    &client,
+                    client,
                     b" ",
-                    &mask,
+                    mask,
                     b" :End of WHO list"
                 );
             }
@@ -840,14 +788,14 @@ impl Message {
                 user_fullspec,
                 reason,
             } => {
-                message!(stream, b":", &user_fullspec, b" QUIT :", &reason);
+                message!(stream, b":", user_fullspec, b" QUIT :", reason);
             }
             Message::FatalError { reason } => {
-                message!(stream, b":", &context.server_name, b" ERROR :", &reason);
+                message!(stream, b":", sv, b" ERROR :", reason);
             }
             Message::Err(err) => {
                 let mut m = stream.new_message();
-                message_push!(m, b":", &context.server_name, b" ");
+                message_push!(m, b":", sv, b" ");
                 err.write_to(m).validate();
             }
         }

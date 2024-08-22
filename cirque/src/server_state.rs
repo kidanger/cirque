@@ -303,9 +303,7 @@ impl ServerState {
 
     pub(crate) fn ruser_pings(&mut self, user_id: UserID, token: &[u8]) {
         let user = &self.registering_users[&user_id];
-        let message = server_to_client::Message::Pong {
-            token: token.to_vec(),
-        };
+        let message = server_to_client::Message::Pong { token };
         user.send(&message, &self.message_context);
     }
 
@@ -351,14 +349,15 @@ impl ServerState {
         let user = &self.registering_users[&user_id];
         let reason = reason.unwrap_or(b"Client Quit");
 
-        let message = server_to_client::Message::FatalError {
-            reason: (b"Closing Link: ".iter().copied())
-                .chain(self.server_name.as_bytes().iter().copied())
-                .chain(b" (".iter().copied())
-                .chain(reason.iter().copied())
-                .chain(b")".iter().copied())
-                .collect::<Vec<u8>>(),
-        };
+        let reason = &b"Closing Link: "
+            .iter()
+            .copied()
+            .chain(self.server_name.as_bytes().iter().copied())
+            .chain(b" (".iter().copied())
+            .chain(reason.iter().copied())
+            .chain(b")".iter().copied())
+            .collect::<Vec<u8>>();
+        let message = server_to_client::Message::FatalError { reason };
         user.send(&message, &self.message_context);
 
         self.registering_users.remove(&user_id);
@@ -368,9 +367,7 @@ impl ServerState {
         let user = &self.registering_users[&user_id];
         let reason = b"Disconnected suddently.";
 
-        let message = server_to_client::Message::FatalError {
-            reason: reason.to_vec(),
-        };
+        let message = server_to_client::Message::FatalError { reason };
         user.send(&message, &self.message_context);
 
         self.registering_users.remove(&user_id);
@@ -404,9 +401,9 @@ impl ServerState {
 
         // notify everyone, including the joiner
         let mut nicknames = vec![];
-        let joiner_spec = self.users[&user_id].fullspec();
+        let joiner_spec = &self.users[&user_id].fullspec();
         let message = server_to_client::Message::Join {
-            channel: channel_name.to_owned(),
+            channel: channel_name,
             user_fullspec: joiner_spec,
         };
         for (user_id, user_mode) in &channel.users {
@@ -418,16 +415,16 @@ impl ServerState {
         // send topic and names to the joiner
         if channel.topic.is_valid() {
             let message = server_to_client::Message::RplTopic {
-                nickname: user.nickname.to_owned(),
-                channel: channel_name.to_owned(),
-                topic: Some(channel.topic.clone()),
+                client: &user.nickname,
+                channel: channel_name,
+                topic: Some(&channel.topic),
             };
             user.send(&message, &self.message_context);
         }
 
         let message = server_to_client::Message::Names {
-            nickname: user.nickname.clone(),
-            names: vec![(channel_name.to_owned(), channel.mode.clone(), nicknames)],
+            client: &user.nickname,
+            names: vec![(channel_name, &channel.mode, nicknames)],
         };
         user.send(&message, &self.message_context);
 
@@ -444,8 +441,8 @@ impl ServerState {
         let Some(channel) = self.channels.get_mut(channel_name) else {
             // if the channel is invalid or does not exist, returns RPL_ENDOFNAMES (366)
             let message = server_to_client::Message::EndOfNames {
-                nickname: user.nickname.clone(),
-                channel: channel_name.to_string(),
+                client: &user.nickname,
+                channel: channel_name,
             };
             user.send(&message, &self.message_context);
             return Ok(());
@@ -453,8 +450,8 @@ impl ServerState {
 
         if channel.mode.is_secret() && !channel.users.contains_key(&user_id) {
             let message = server_to_client::Message::EndOfNames {
-                nickname: user.nickname.clone(),
-                channel: channel_name.to_string(),
+                client: &user.nickname,
+                channel: channel_name,
             };
             user.send(&message, &self.message_context);
             return Ok(());
@@ -467,8 +464,8 @@ impl ServerState {
         }
 
         let message = server_to_client::Message::Names {
-            nickname: user.nickname.clone(),
-            names: vec![(channel_name.to_owned(), channel.mode.clone(), nicknames)],
+            client: &user.nickname,
+            names: vec![(channel_name, &channel.mode, nicknames)],
         };
         user.send(&message, &self.message_context);
         Ok(())
@@ -478,7 +475,7 @@ impl ServerState {
         &mut self,
         user_id: UserID,
         channel_name: &str,
-        reason: &Option<Vec<u8>>,
+        reason: Option<&[u8]>,
     ) -> Result<(), ServerStateError> {
         let user = &self.users[&user_id];
         validate_channel_name(user, channel_name)?;
@@ -498,9 +495,9 @@ impl ServerState {
         }
 
         let message = server_to_client::Message::Part {
-            user_fullspec: user.fullspec(),
-            channel: channel_name.to_string(),
-            reason: reason.clone(),
+            user_fullspec: &user.fullspec(),
+            channel: channel_name,
+            reason,
         };
         for user_id in channel.users.keys() {
             let user = &self.users[user_id];
@@ -521,8 +518,8 @@ impl ServerState {
         let reason = reason.unwrap_or(b"Client Quit");
 
         let message = server_to_client::Message::Quit {
-            user_fullspec: user.fullspec(),
-            reason: reason.to_vec(),
+            user_fullspec: &user.fullspec(),
+            reason,
         };
         for channel in self.channels.values_mut() {
             if channel.users.contains_key(&user_id) {
@@ -534,14 +531,15 @@ impl ServerState {
             }
         }
 
-        let message = server_to_client::Message::FatalError {
-            reason: (b"Closing Link: ".iter().copied())
-                .chain(self.server_name.as_bytes().iter().copied())
-                .chain(b" (".iter().copied())
-                .chain(reason.iter().copied())
-                .chain(b")".iter().copied())
-                .collect::<Vec<u8>>(),
-        };
+        let reason = &b"Closing Link: "
+            .iter()
+            .copied()
+            .chain(self.server_name.as_bytes().iter().copied())
+            .chain(b" (".iter().copied())
+            .chain(reason.iter().copied())
+            .chain(b")".iter().copied())
+            .collect::<Vec<u8>>();
+        let message = server_to_client::Message::FatalError { reason };
         user.send(&message, &self.message_context);
 
         self.channels.retain(|_, channel| !channel.users.is_empty());
@@ -553,8 +551,8 @@ impl ServerState {
         let reason = b"Disconnected suddently.";
 
         let message = server_to_client::Message::Quit {
-            user_fullspec: user.fullspec(),
-            reason: reason.to_vec(),
+            user_fullspec: &user.fullspec(),
+            reason,
         };
         for channel in self.channels.values_mut() {
             if channel.users.contains_key(&user_id) {
@@ -566,9 +564,7 @@ impl ServerState {
             }
         }
 
-        let message = server_to_client::Message::FatalError {
-            reason: reason.to_vec(),
-        };
+        let message = server_to_client::Message::FatalError { reason };
         user.send(&message, &self.message_context);
 
         self.channels.retain(|_, channel| !channel.users.is_empty());
@@ -589,8 +585,8 @@ impl ServerState {
         }
 
         let message = server_to_client::Message::Nick {
-            previous_user_fullspec: user.fullspec(),
-            nickname: new_nick.to_string(),
+            previous_user_fullspec: &user.fullspec(),
+            nickname: new_nick,
         };
         new_nick.clone_into(&mut user.nickname);
 
@@ -648,9 +644,9 @@ impl ServerState {
         };
 
         let message = server_to_client::Message::PrivMsg {
-            from_user: user.fullspec(),
-            target: target.to_string(),
-            content: content.to_vec(),
+            from_user: &user.fullspec(),
+            target,
+            content,
         };
 
         match obj {
@@ -668,9 +664,9 @@ impl ServerState {
                 target_user.send(&message, &self.message_context);
                 if let Some(away_message) = &target_user.away_message {
                     let message = server_to_client::Message::RplAway {
-                        nickname: user.nickname.clone(),
-                        target_nickname: target_user.nickname.clone(),
-                        away_message: away_message.clone(),
+                        client: &user.nickname,
+                        target_nickname: &target_user.nickname,
+                        away_message,
                     };
                     user.send(&message, &self.message_context);
                 }
@@ -694,9 +690,9 @@ impl ServerState {
         };
 
         let message = server_to_client::Message::Notice {
-            from_user: user.fullspec(),
-            target: target.to_string(),
-            content: content.to_vec(),
+            from_user: &user.fullspec(),
+            target,
+            content,
         };
 
         match obj {
@@ -735,9 +731,9 @@ impl ServerState {
         };
 
         let message = server_to_client::Message::ChannelMode {
-            nickname: user.nickname.clone(),
-            channel: channel_name.to_owned(),
-            mode: channel.mode.clone(),
+            client: &user.nickname,
+            channel: channel_name,
+            mode: &channel.mode,
         };
 
         user.send(&message, &self.message_context);
@@ -811,10 +807,10 @@ impl ServerState {
                 if *cur_target_mode != new_target_mode {
                     *cur_target_mode = new_target_mode;
                     let message = server_to_client::Message::Mode {
-                        user_fullspec: user.fullspec(),
-                        target: channel_name.to_string(),
-                        modechar: modechar.to_string(),
-                        param: Some(target.to_string()),
+                        user_fullspec: &user.fullspec(),
+                        target: channel_name,
+                        modechar,
+                        param: Some(target),
                     };
                     for user_id in channel.users.keys() {
                         let user = &self.users[user_id];
@@ -839,10 +835,10 @@ impl ServerState {
                 if *cur_target_mode != new_target_mode {
                     *cur_target_mode = new_target_mode;
                     let message = server_to_client::Message::Mode {
-                        user_fullspec: user.fullspec(),
-                        target: channel_name.to_string(),
-                        modechar: modechar.to_string(),
-                        param: Some(target.to_string()),
+                        user_fullspec: &user.fullspec(),
+                        target: channel_name,
+                        modechar,
+                        param: Some(target),
                     };
                     for user_id in channel.users.keys() {
                         let user = &self.users[user_id];
@@ -864,9 +860,9 @@ impl ServerState {
             channel.mode = new_channel_mode;
 
             let message = server_to_client::Message::Mode {
-                user_fullspec: user.fullspec(),
-                target: channel_name.to_string(),
-                modechar: modechar.to_string(),
+                user_fullspec: &user.fullspec(),
+                target: channel_name,
+                modechar,
                 param: None,
             };
             for user_id in channel.users.keys() {
@@ -903,9 +899,9 @@ impl ServerState {
         channel.topic.from_nickname.clone_from(&user.nickname);
 
         let message = &server_to_client::Message::Topic {
-            user_fullspec: user.fullspec(),
-            channel: channel_name.into(),
-            topic: channel.topic.clone(),
+            user_fullspec: &user.fullspec(),
+            channel: channel_name,
+            topic: &channel.topic,
         };
         channel
             .users
@@ -938,10 +934,10 @@ impl ServerState {
 
         let topic = &channel.topic;
         let message = server_to_client::Message::RplTopic {
-            nickname: user.nickname.clone(),
-            channel: channel_name.into(),
+            client: &user.nickname,
+            channel: channel_name,
             topic: if topic.is_valid() {
-                Some(channel.topic.clone())
+                Some(&channel.topic)
             } else {
                 None
             },
@@ -952,14 +948,14 @@ impl ServerState {
 
     pub(crate) fn user_registers(&mut self, user: RegisteredUser) {
         let message = server_to_client::Message::Welcome {
-            nickname: user.nickname.clone(),
-            user_fullspec: user.fullspec(),
-            welcome_config: self.welcome_config.clone(),
+            nickname: &user.nickname,
+            user_fullspec: &user.fullspec(),
+            welcome_config: &self.welcome_config,
         };
         user.send(&message, &self.message_context);
 
         let message = server_to_client::Message::LUsers {
-            nickname: user.nickname.to_string(),
+            client: &user.nickname,
             n_operators: 0,
             n_unknown_connections: self.registering_users.len(),
             n_channels: self.channels.len(),
@@ -970,7 +966,7 @@ impl ServerState {
         user.send(&message, &self.message_context);
 
         let message = server_to_client::Message::MOTD {
-            nickname: user.nickname.to_string(),
+            client: &user.nickname,
             motd: self.motd_provider.motd(),
         };
         user.send(&message, &self.message_context);
@@ -980,9 +976,7 @@ impl ServerState {
 
     pub(crate) fn user_pings(&mut self, user_id: UserID, token: &[u8]) {
         let user = &self.users[&user_id];
-        let message = server_to_client::Message::Pong {
-            token: token.to_vec(),
-        };
+        let message = server_to_client::Message::Pong { token };
         user.send(&message, &self.message_context);
     }
 
@@ -1010,7 +1004,7 @@ impl ServerState {
     pub(crate) fn user_wants_motd(&self, user_id: UserID) {
         let user = &self.users[&user_id];
         let message = server_to_client::Message::MOTD {
-            nickname: user.nickname.clone(),
+            client: &user.nickname,
             motd: self.motd_provider.motd(),
         };
         user.send(&message, &self.message_context);
@@ -1088,8 +1082,8 @@ impl ServerState {
 
         let user = &self.users[&user_id];
         let message = server_to_client::Message::List {
-            client: user.nickname.clone(),
-            infos: channel_info_list,
+            client: &user.nickname,
+            infos: &channel_info_list,
         };
         user.send(&message, &self.message_context);
     }
@@ -1100,11 +1094,11 @@ impl ServerState {
 
         let message = if user.is_away() {
             server_to_client::Message::NowAway {
-                nickname: user.nickname.clone(),
+                client: &user.nickname,
             }
         } else {
             server_to_client::Message::UnAway {
-                nickname: user.nickname.clone(),
+                client: &user.nickname,
             }
         };
         user.send(&message, &self.message_context);
@@ -1125,8 +1119,8 @@ impl ServerState {
             }
         }
         let message = server_to_client::Message::RplUserhost {
-            nickname: user.nickname.clone(),
-            info: replies,
+            client: &user.nickname,
+            info: &replies,
         };
         user.send(&message, &self.message_context);
     }
@@ -1140,20 +1134,20 @@ impl ServerState {
             });
             user.send(&message, &self.message_context);
             let message = server_to_client::Message::RplEndOfWhois {
-                client: user.nickname.to_string(),
-                target_nickname: nickname.to_string(),
+                client: &user.nickname,
+                target_nickname: nickname,
             };
             user.send(&message, &self.message_context);
             return;
         };
 
         let message = server_to_client::Message::RplWhois {
-            client: user.nickname.clone(),
-            target_nickname: nickname.into(),
-            away_message: target_user.away_message.clone(),
-            hostname: target_user.shown_hostname().into(),
-            username: target_user.username.clone(),
-            realname: target_user.realname.clone(),
+            client: &user.nickname,
+            target_nickname: nickname,
+            away_message: target_user.away_message.as_deref(),
+            hostname: target_user.shown_hostname(),
+            username: &target_user.username,
+            realname: &target_user.realname,
         };
         user.send(&message, &self.message_context);
     }
@@ -1215,9 +1209,9 @@ impl ServerState {
         }
 
         let message = server_to_client::Message::Who {
-            client: user.nickname.clone(),
-            mask: mask.into(),
-            replies,
+            client: &user.nickname,
+            mask,
+            replies: &replies,
         };
         user.send(&message, &self.message_context);
     }
@@ -1226,7 +1220,7 @@ impl ServerState {
         let user = &self.users[&user_id];
 
         let message = server_to_client::Message::LUsers {
-            nickname: user.nickname.to_string(),
+            client: &user.nickname,
             n_operators: 0,
             n_unknown_connections: self.registering_users.len(),
             n_channels: self.channels.len(),
