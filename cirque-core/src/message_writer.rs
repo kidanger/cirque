@@ -85,6 +85,8 @@ impl OnGoingMessage<'_, '_> {
 
     pub(crate) fn validate(mut self) {
         // cut at 510 bytes and add new lines
+        // NOTE: this might cut an utf8 character, but this is OK according to the spec
+        // https://modern.ircdocs.horse/#compatibility-with-incorrect-software
         let pos = self.buf.position().min((IRC_MESSAGE_MAX_SIZE - 2) as u64);
         self.buf.set_position(pos);
         let _ = self.buf.write_all(b"\r\n");
@@ -139,7 +141,7 @@ mod tests {
     }
 
     #[test]
-    fn test_2message() {
+    fn test_2messages() {
         let (mailbox, mut sink) = Mailbox::new();
         let mut mw = MessageWriter { mailbox: &mailbox };
 

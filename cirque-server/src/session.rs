@@ -3,7 +3,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use cirque_core::RegisteringState;
 use cirque_core::ServerState;
 use cirque_core::SessionState;
-use cirque_parser::{LendingIterator, MessageIteratorError, StreamParser};
+use cirque_parser::{LendingIterator, StreamParser};
 
 use crate::transport::AnyStream;
 
@@ -32,24 +32,16 @@ impl Session {
                     }
 
                     let mut iter = stream_parser.consume_iter();
-                    let mut reset_buffer = false;
                     while let Some(message) = iter.next() {
                         let message = match message {
                             Ok(m) => m,
-                            Err(MessageIteratorError::BufferFullWithoutMessageError) => {
-                                reset_buffer = true;
-                                break;
-                            }
-                            Err(MessageIteratorError::ParsingError(_e)) => {
+                            Err(_err) => {
                                 // TODO: log
                                 continue;
                             }
                         };
 
                         state = state.handle_message(&server_state, message);
-                    }
-                    if reset_buffer {
-                        stream_parser.clear();
                     }
                 },
                 Some(msg) = rx.recv() => {

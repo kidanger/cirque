@@ -18,7 +18,7 @@ impl std::error::Error for ParsingError {}
 
 #[derive(Debug)]
 pub struct StreamParser {
-    buffer: SliceRingBuffer<u8>,
+    pub(crate) buffer: SliceRingBuffer<u8>,
 }
 
 impl Default for StreamParser {
@@ -35,14 +35,13 @@ impl StreamParser {
     }
 
     pub fn consume_iter(&mut self) -> MessageIterator<'_> {
+        if self.buffer.is_full() && !self.buffer.contains(&b'\n') {
+            // TODO: log
+            self.buffer.clear();
+        }
         MessageIterator {
             stream_parser: self,
-            buffer_is_full: false,
         }
-    }
-
-    pub fn clear(&mut self) {
-        self.buffer.clear();
     }
 }
 
@@ -129,13 +128,6 @@ fn consume_line(buf: &mut SliceRingBuffer<u8>) -> Option<&[u8]> {
 
 pub struct MessageIterator<'a> {
     stream_parser: &'a mut StreamParser,
-    buffer_is_full: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum MessageIteratorError {
-    ParsingError(ParsingError),
-    BufferFullWithoutMessageError,
 }
 
 #[gat]
@@ -143,26 +135,15 @@ impl LendingIterator for MessageIterator<'_> {
     type Item<'next>
     where
         Self: 'next,
-    = Result<Message<'next>, MessageIteratorError>;
+    = Result<Message<'next>, ParsingError>;
 
-    fn next(&mut self) -> Option<Result<Message<'_>, MessageIteratorError>> {
-        if self.buffer_is_full {
-            return None;
-        }
+    fn next(&mut self) -> Option<Result<Message<'_>, ParsingError>> {
+        let line = consume_line(&mut self.stream_parser.buffer)?;
 
-        let is_full = self.stream_parser.buffer.is_full();
-        let line = consume_line(&mut self.stream_parser.buffer);
-        if line.is_none() && is_full {
-            // next iteration should stop
-            self.buffer_is_full = true;
-            return Some(Err(MessageIteratorError::BufferFullWithoutMessageError {}));
-        }
-
-        let line = line?;
         let result = parse_message(line);
         let result = result
             .map(|(_, msg)| msg)
-            .map_err(|err| MessageIteratorError::ParsingError(ParsingError(err.to_string())));
+            .map_err(|err| ParsingError(err.to_string()));
 
         Some(result)
     }
@@ -174,8 +155,6 @@ mod tests {
 
     use bytes::BufMut;
     use lending_iterator::LendingIterator;
-
-    use crate::MessageIteratorError;
 
     use super::StreamParser;
 
@@ -234,24 +213,7 @@ mod tests {
     }
 
     #[test]
-    fn test_fill_100m_10b() {
-        use bytes::BufMut;
-        use std::io::Write;
-        let mut sp = StreamParser::default();
-        let mut writer = sp.writer();
-        for _ in 0..100 {
-            let c = writer.write(b"012345678\n").unwrap();
-            assert_eq!(c, 10);
-        }
-
-        sp = writer.into_inner();
-        let iter = sp.consume_iter();
-        let m = iter.count();
-        assert_eq!(m, 100);
-    }
-
-    #[test]
-    fn test_fill_0m() {
+    fn test_fill_100m() {
         let mut sp = StreamParser::default();
         let mut writer = sp.writer();
         for _ in 0..100 {
@@ -265,25 +227,51 @@ mod tests {
     }
 
     #[test]
-    fn test_fill2() {
+    fn test_fill_no_endofline() {
         let sp = StreamParser::default();
-        let mut writer = sp.writer();
+        let mut sp = {
+            let mut writer = sp.writer();
 
-        // write 4096 bytes without end of line
-        for _ in 0..4096 {
-            writer.write_all(b"0").unwrap();
-        }
-        // cannot push another byte
-        writer.write_all(b"0").unwrap_err();
+            // write 4096 bytes without end of line
+            for _ in 0..4096 {
+                writer.write_all(b"0").unwrap();
+            }
+            writer.into_inner()
+        };
+        // buffer is full, without new lines
+        assert!(sp.buffer.is_full());
 
-        // make sure it only produces a single item
-        let mut sp = writer.into_inner();
-        let iter = sp.consume_iter();
-        assert_eq!(iter.count(), 1);
-
-        // make sure the item is the "BufferFullWithoutMessageError"
+        // make sure it doesnt not yield any message...
         let mut iter = sp.consume_iter();
-        let err = iter.next().unwrap().unwrap_err();
-        assert_eq!(err, MessageIteratorError::BufferFullWithoutMessageError);
+        assert!(iter.next().is_none());
+        // and that the buffer is empty
+        assert!(sp.buffer.is_empty());
+    }
+
+    #[test]
+    fn test_2message_but_many_endoflines() {
+        let sp = StreamParser::default();
+
+        let mut writer = sp.writer();
+        writer.write_all(b"\r\nto\r\n\n\r\nta\r\n\r\n").unwrap();
+        let mut sp = writer.into_inner();
+
+        let mut iter = sp.consume_iter();
+        {
+            let a = iter.next().unwrap().unwrap();
+            assert_eq!(a.command(), b"to");
+        }
+        {
+            let a = iter.next().unwrap().unwrap();
+            assert_eq!(a.command(), b"ta");
+        }
+
+        let mut writer = sp.writer();
+        writer.write_all(b"aa\r\na").unwrap();
+        let mut sp = writer.into_inner();
+
+        let mut iter = sp.consume_iter();
+        let a = iter.next().unwrap().unwrap();
+        assert_eq!(a.command(), b"aa");
     }
 }

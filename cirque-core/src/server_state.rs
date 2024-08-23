@@ -251,7 +251,6 @@ impl ServerState {
             return Ok(false);
         }
 
-        #[allow(clippy::unwrap_used)]
         let user = sv.registering_users.remove(&user_id).unwrap();
 
         if user.password != sv.password {
@@ -1462,7 +1461,7 @@ fn validate_channel_name(
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::panic_in_result_fn)]
+    #![allow(clippy::panic_in_result_fn)] // fine in tests
     use super::*;
 
     #[derive(Debug)]
