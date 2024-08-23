@@ -100,7 +100,7 @@ async fn main() -> Result<(), anyhow::Error> {
                     continue;
                 };
 
-                let mut server_state = server_state.lock().unwrap();
+                let mut server_state = server_state.lock();
                 let password = config.password.as_ref().map(|p| p.as_bytes());
                 server_state.set_password(password);
                 server_state.set_server_name(&config.server_name);

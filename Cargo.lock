@@ -180,6 +180,7 @@ version = "0.1.0"
 dependencies = [
  "cirque-parser",
  "decancer",
+ "parking_lot",
  "thiserror",
  "tokio",
  "uuid",

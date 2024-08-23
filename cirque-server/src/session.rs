@@ -19,7 +19,7 @@ impl Session {
     pub(crate) async fn run(mut self, server_state: SharedServerState) -> anyhow::Result<()> {
         let mut stream_parser = StreamParser::default();
 
-        let (user_id, mut rx) = server_state.lock().unwrap().new_registering_user();
+        let (user_id, mut rx) = server_state.lock().new_registering_user();
         let mut state = SessionState::Registering(RegisteringState::new(user_id));
 
         while !state.client_disconnected_voluntarily() {
@@ -46,7 +46,7 @@ impl Session {
                             }
                         };
 
-                        let mut server_state = server_state.lock().unwrap();
+                        let mut server_state = server_state.lock();
                         state = state.handle_message(&mut server_state, message);
                     }
                     if reset_buffer {
@@ -71,16 +71,10 @@ impl Session {
             //self.stream.flush().await?;
         } else if let SessionState::Registering(_) = state {
             // the connection was closed without notification
-            server_state
-                .lock()
-                .unwrap()
-                .ruser_disconnects_suddently(user_id);
+            server_state.lock().ruser_disconnects_suddently(user_id);
         } else if let SessionState::Registered(_) = state {
             // the connection was closed without notification
-            server_state
-                .lock()
-                .unwrap()
-                .user_disconnects_suddently(user_id);
+            server_state.lock().user_disconnects_suddently(user_id);
         }
 
         Ok(())
