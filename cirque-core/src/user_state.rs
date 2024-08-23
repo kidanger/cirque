@@ -1,5 +1,6 @@
+use crate::client_to_server;
+use crate::server_state::ServerState;
 use crate::UserID;
-use crate::{client_to_server, ServerState};
 
 #[derive(Debug)]
 pub struct RegisteringState {
@@ -13,7 +14,7 @@ impl RegisteringState {
 
     fn handle_message(
         self,
-        server_state: &mut ServerState,
+        server_state: &ServerState,
         message: cirque_parser::Message<'_>,
     ) -> SessionState {
         let message = match client_to_server::Message::try_from(&message) {
@@ -76,7 +77,7 @@ pub struct RegisteredState {
 impl RegisteredState {
     fn handle_message(
         self,
-        server_state: &mut ServerState,
+        server_state: &ServerState,
         message: cirque_parser::Message<'_>,
     ) -> SessionState {
         let message = match client_to_server::Message::try_from(&message) {
@@ -210,7 +211,7 @@ impl SessionState {
 
     pub fn handle_message(
         self,
-        server_state: &mut ServerState,
+        server_state: &ServerState,
         message: cirque_parser::Message<'_>,
     ) -> SessionState {
         match self {

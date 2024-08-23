@@ -1,10 +1,10 @@
-use cirque_core::SharedServerState;
+use cirque_core::ServerState;
 
 use crate::session::Session;
 use crate::transport::{AnyStream, Listener};
 use crate::AnyListener;
 
-fn handle_client(server_state: SharedServerState, stream: anyhow::Result<AnyStream>) {
+fn handle_client(server_state: ServerState, stream: anyhow::Result<AnyStream>) {
     let fut = async move {
         // wait until we are in the async task to throw the error
         let stream = stream?;
@@ -22,10 +22,7 @@ fn handle_client(server_state: SharedServerState, stream: anyhow::Result<AnyStre
     });
 }
 
-pub async fn run_server(
-    listener: AnyListener,
-    server_state: SharedServerState,
-) -> anyhow::Result<()> {
+pub async fn run_server(listener: AnyListener, server_state: ServerState) -> anyhow::Result<()> {
     loop {
         let stream = listener.accept().await;
         handle_client(server_state.clone(), stream);

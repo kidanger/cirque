@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use parking_lot::Mutex;
+use parking_lot::RwLock;
 
 use crate::client_to_server::{ListFilter, ListOperation, ListOption, MessageDecodingError};
 use crate::error::ServerStateError;
@@ -15,15 +15,17 @@ use crate::server_to_client::{
 use crate::types::{
     Channel, ChannelMode, ChannelUserMode, RegisteredUser, RegisteringUser, UserID, WelcomeConfig,
 };
+use crate::MOTDProvider;
 
-pub type SharedServerState = Arc<Mutex<ServerState>>;
+#[derive(Clone)]
+pub struct ServerState(Arc<RwLock<ServerStateInner>>);
 
 enum LookupResult<'r> {
     Channel(&'r String, &'r Channel),
     RegisteredUser(&'r RegisteredUser),
 }
 
-pub struct ServerState {
+struct ServerStateInner {
     users: HashMap<UserID, RegisteredUser>,
     registering_users: HashMap<UserID, RegisteringUser>,
     channels: HashMap<String, Channel>,
@@ -47,7 +49,7 @@ impl ServerState {
     where
         MP: MOTDProvider + Send + Sync + 'static,
     {
-        Self {
+        let sv = ServerStateInner {
             users: Default::default(),
             registering_users: Default::default(),
             channels: Default::default(),
@@ -60,36 +62,13 @@ impl ServerState {
                 server_name: server_name.to_string(),
             },
             default_channel_mode: ChannelMode::default().with_no_external(),
-        }
-    }
-
-    pub fn server_name(&self) -> &str {
-        &self.server_name
-    }
-
-    pub fn set_server_name(&mut self, server_name: &str) {
-        self.server_name = server_name.to_string();
-        self.message_context = server_to_client::MessageContext {
-            server_name: server_name.to_string(),
         };
+        ServerState(Arc::new(RwLock::new(sv)))
     }
+}
 
-    pub fn set_password(&mut self, password: Option<&[u8]>) {
-        self.password = password.map(|s| s.into());
-    }
-
-    pub fn set_motd_provider<MP>(&mut self, motd_provider: Arc<MP>)
-    where
-        MP: MOTDProvider + Send + Sync + 'static,
-    {
-        self.motd_provider = motd_provider;
-    }
-
-    pub fn shared(self) -> SharedServerState {
-        Arc::new(Mutex::new(self))
-    }
-
-    pub(crate) fn check_nickname(
+impl ServerStateInner {
+    fn check_nickname(
         &self,
         nickname: &str,
         user_id: Option<UserID>,
@@ -149,8 +128,187 @@ impl ServerState {
 
         Ok(())
     }
+}
+
+impl ServerState {
+    pub fn new_registering_user(&self) -> (UserID, MailboxSink) {
+        let mut sv = self.0.write();
+
+        let (user, rx) = RegisteringUser::new();
+        let user_id = user.user_id;
+        sv.registering_users.insert(user.user_id, user);
+        (user_id, rx)
+    }
+
+    pub fn set_server_name(&self, server_name: &str) {
+        let mut sv = self.0.write();
+        sv.server_name = server_name.to_string();
+        sv.message_context = server_to_client::MessageContext {
+            server_name: server_name.to_string(),
+        };
+    }
+
+    pub fn set_password(&self, password: Option<&[u8]>) {
+        let mut sv = self.0.write();
+        sv.password = password.map(|s| s.into());
+    }
+
+    pub fn set_motd_provider<MP>(&self, motd_provider: Arc<MP>)
+    where
+        MP: MOTDProvider + Send + Sync + 'static,
+    {
+        let mut sv = self.0.write();
+        sv.motd_provider = motd_provider;
+    }
+}
+
+impl ServerStateInner {
+    fn get_ruser(&self, user_id: UserID) -> &RegisteringUser {
+        #[allow(clippy::unwrap_used)]
+        self.registering_users.get(&user_id).unwrap()
+    }
+
+    fn get_mut_ruser(&mut self, user_id: UserID) -> &mut RegisteringUser {
+        #[allow(clippy::unwrap_used)]
+        self.registering_users.get_mut(&user_id).unwrap()
+    }
+}
+
+/// Functions for registering users
+impl ServerState {
+    pub(crate) fn ruser_sends_invalid_message(&self, user_id: UserID, error: MessageDecodingError) {
+        let sv = self.0.read();
+
+        let user = sv.get_ruser(user_id);
+        let client = user.maybe_nickname();
+        if let Some(err) = ServerStateError::from_decoding_error_with_client(error, client) {
+            self.send_error(user_id, err);
+        }
+    }
+
+    pub(crate) fn ruser_uses_password(&self, user_id: UserID, password: &[u8]) {
+        let mut sv = self.0.write();
+
+        let user = sv.get_mut_ruser(user_id);
+        user.password = Some(password.into());
+    }
+
+    pub(crate) fn ruser_uses_nick(
+        &self,
+        user_id: UserID,
+        nick: &str,
+    ) -> Result<(), ServerStateError> {
+        let mut sv = self.0.write();
+
+        sv.check_nickname(nick, Some(user_id))?;
+        let user = sv.get_mut_ruser(user_id);
+        user.nickname = Some(nick.into());
+        Ok(())
+    }
+
+    pub(crate) fn ruser_uses_username(&self, user_id: UserID, username: &str, realname: &[u8]) {
+        let mut sv = self.0.write();
+
+        let user = sv.get_mut_ruser(user_id);
+        user.username = Some(username.into());
+        user.realname = Some(realname.into());
+    }
+
+    pub(crate) fn ruser_pings(&self, user_id: UserID, token: &[u8]) {
+        let sv = self.0.read();
+
+        let user = sv.get_ruser(user_id);
+        let message = server_to_client::Message::Pong { token };
+        user.send(&message, &sv.message_context);
+    }
+
+    pub(crate) fn ruser_sends_unknown_command(&self, user_id: UserID, command: &str) {
+        let sv = self.0.read();
+
+        let user = sv.get_ruser(user_id);
+        let message = server_to_client::Message::Err(ServerStateError::UnknownCommand {
+            client: user.maybe_nickname(),
+            command: command.to_owned(),
+        });
+        user.send(&message, &sv.message_context);
+    }
+
+    pub(crate) fn ruser_sends_command_but_is_not_registered(&self, user_id: UserID) {
+        let sv = self.0.read();
+
+        let user = sv.get_ruser(user_id);
+        let message = server_to_client::Message::Err(ServerStateError::NotRegistered {
+            client: user.maybe_nickname(),
+        });
+        user.send(&message, &sv.message_context);
+    }
+
+    pub(crate) fn check_ruser_registration_state(&self, user_id: UserID) -> Result<bool, ()> {
+        let mut sv = self.0.write();
+
+        let user = &sv.registering_users[&user_id];
+        if !user.is_ready() {
+            return Ok(false);
+        }
+
+        #[allow(clippy::unwrap_used)]
+        let user = sv.registering_users.remove(&user_id).unwrap();
+
+        if user.password != sv.password {
+            let message = server_to_client::Message::Err(ServerStateError::PasswdMismatch {
+                client: user.maybe_nickname(),
+            });
+            user.send(&message, &sv.message_context);
+            return Err(());
+        }
+
+        let user = RegisteredUser::from(user);
+        sv.user_registers(user);
+        Ok(true)
+    }
+
+    pub(crate) fn ruser_disconnects_voluntarily(&self, user_id: UserID, reason: Option<&[u8]>) {
+        let mut sv = self.0.write();
+
+        let user = &sv.registering_users[&user_id];
+        let reason = reason.unwrap_or(b"Client Quit");
+
+        let reason = &b"Closing Link: "
+            .iter()
+            .copied()
+            .chain(sv.server_name.as_bytes().iter().copied())
+            .chain(b" (".iter().copied())
+            .chain(reason.iter().copied())
+            .chain(b")".iter().copied())
+            .collect::<Vec<u8>>();
+        let message = server_to_client::Message::FatalError { reason };
+        user.send(&message, &sv.message_context);
+
+        sv.registering_users.remove(&user_id);
+    }
+
+    // TODO: hide
+    pub fn ruser_disconnects_suddently(&self, user_id: UserID) {
+        let mut sv = self.0.write();
+
+        let user = &sv.registering_users[&user_id];
+        let reason = b"Disconnected suddently.";
+
+        let message = server_to_client::Message::FatalError { reason };
+        user.send(&message, &sv.message_context);
+
+        sv.registering_users.remove(&user_id);
+    }
 
     pub(crate) fn send_error(&self, user_id: UserID, error: ServerStateError) {
+        let sv = self.0.read();
+        sv.send_error(user_id, error);
+    }
+}
+
+/// Functions for registered users
+impl ServerStateInner {
+    fn send_error(&self, user_id: UserID, error: ServerStateError) {
         if let Some(user) = self.users.get(&user_id) {
             user.send(
                 &server_to_client::Message::Err(error),
@@ -168,126 +326,19 @@ impl ServerState {
     }
 }
 
-/// Functions for registering users
 impl ServerState {
-    pub fn new_registering_user(&mut self) -> (UserID, MailboxSink) {
-        let (user, rx) = RegisteringUser::new();
-        let user_id = user.user_id;
-        self.registering_users.insert(user.user_id, user);
-        (user_id, rx)
-    }
-
-    pub(crate) fn ruser_sends_invalid_message(
-        &mut self,
+    pub(crate) fn user_joins_channel(
+        &self,
         user_id: UserID,
-        error: MessageDecodingError,
-    ) {
-        let user = &self.registering_users[&user_id];
-        let client = user.maybe_nickname();
-        if let Some(err) = ServerStateError::from_decoding_error_with_client(error, client) {
-            self.send_error(user_id, err);
-        }
-    }
-
-    pub(crate) fn ruser_uses_password(&mut self, user_id: UserID, password: &[u8]) {
-        let user = self.registering_users.get_mut(&user_id).unwrap();
-        user.password = Some(password.into());
-    }
-
-    pub(crate) fn ruser_uses_nick(
-        &mut self,
-        user_id: UserID,
-        nick: &str,
+        channel_name: &str,
     ) -> Result<(), ServerStateError> {
-        self.check_nickname(nick, Some(user_id))?;
-        let user = self.registering_users.get_mut(&user_id).unwrap();
-        user.nickname = Some(nick.into());
-        Ok(())
-    }
-
-    pub(crate) fn ruser_uses_username(&mut self, user_id: UserID, username: &str, realname: &[u8]) {
-        let user = self.registering_users.get_mut(&user_id).unwrap();
-        user.username = Some(username.into());
-        user.realname = Some(realname.into());
-    }
-
-    pub(crate) fn ruser_pings(&mut self, user_id: UserID, token: &[u8]) {
-        let user = &self.registering_users[&user_id];
-        let message = server_to_client::Message::Pong { token };
-        user.send(&message, &self.message_context);
-    }
-
-    pub(crate) fn ruser_sends_unknown_command(&mut self, user_id: UserID, command: &str) {
-        let user = &self.registering_users[&user_id];
-        let message = server_to_client::Message::Err(ServerStateError::UnknownCommand {
-            client: user.maybe_nickname(),
-            command: command.to_owned(),
-        });
-        user.send(&message, &self.message_context);
-    }
-
-    pub(crate) fn ruser_sends_command_but_is_not_registered(&mut self, user_id: UserID) {
-        let user = &self.registering_users[&user_id];
-        let message = server_to_client::Message::Err(ServerStateError::NotRegistered {
-            client: user.maybe_nickname(),
-        });
-        user.send(&message, &self.message_context);
-    }
-
-    pub(crate) fn check_ruser_registration_state(&mut self, user_id: UserID) -> Result<bool, ()> {
-        let user = &self.registering_users[&user_id];
-        if !user.is_ready() {
-            return Ok(false);
-        }
-
-        let user = self.registering_users.remove(&user_id).unwrap();
-
-        if user.password != self.password {
-            let message = server_to_client::Message::Err(ServerStateError::PasswdMismatch {
-                client: user.maybe_nickname(),
-            });
-            user.send(&message, &self.message_context);
-            return Err(());
-        }
-
-        let user = RegisteredUser::from(user);
-        self.user_registers(user);
-        Ok(true)
-    }
-
-    pub(crate) fn ruser_disconnects_voluntarily(&mut self, user_id: UserID, reason: Option<&[u8]>) {
-        let user = &self.registering_users[&user_id];
-        let reason = reason.unwrap_or(b"Client Quit");
-
-        let reason = &b"Closing Link: "
-            .iter()
-            .copied()
-            .chain(self.server_name.as_bytes().iter().copied())
-            .chain(b" (".iter().copied())
-            .chain(reason.iter().copied())
-            .chain(b")".iter().copied())
-            .collect::<Vec<u8>>();
-        let message = server_to_client::Message::FatalError { reason };
-        user.send(&message, &self.message_context);
-
-        self.registering_users.remove(&user_id);
-    }
-
-    // TODO: hide
-    pub fn ruser_disconnects_suddently(&mut self, user_id: UserID) {
-        let user = &self.registering_users[&user_id];
-        let reason = b"Disconnected suddently.";
-
-        let message = server_to_client::Message::FatalError { reason };
-        user.send(&message, &self.message_context);
-
-        self.registering_users.remove(&user_id);
+        let mut sv = self.0.write();
+        sv.user_joins_channel(user_id, channel_name)
     }
 }
 
-/// Functions for registered users
-impl ServerState {
-    pub(crate) fn user_joins_channel(
+impl ServerStateInner {
+    fn user_joins_channel(
         &mut self,
         user_id: UserID,
         channel_name: &str,
@@ -345,15 +396,28 @@ impl ServerState {
 
         Ok(())
     }
+}
 
+impl ServerState {
     pub(crate) fn user_names_channel(
-        &mut self,
+        &self,
+        user_id: UserID,
+        channel_name: &str,
+    ) -> Result<(), ServerStateError> {
+        let sv = self.0.read();
+        sv.user_names_channel(user_id, channel_name)
+    }
+}
+
+impl ServerStateInner {
+    fn user_names_channel(
+        &self,
         user_id: UserID,
         channel_name: &str,
     ) -> Result<(), ServerStateError> {
         let user = &self.users[&user_id];
 
-        let Some(channel) = self.channels.get_mut(channel_name) else {
+        let Some(channel) = self.channels.get(channel_name) else {
             // if the channel is invalid or does not exist, returns RPL_ENDOFNAMES (366)
             let message = server_to_client::Message::EndOfNames {
                 client: &user.nickname,
@@ -389,8 +453,22 @@ impl ServerState {
         user.send(&message, &self.message_context);
         Ok(())
     }
+}
 
+impl ServerState {
     pub(crate) fn user_leaves_channel(
+        &self,
+        user_id: UserID,
+        channel_name: &str,
+        reason: Option<&[u8]>,
+    ) -> Result<(), ServerStateError> {
+        let mut sv = self.0.write();
+        sv.user_leaves_channel(user_id, channel_name, reason)
+    }
+}
+
+impl ServerStateInner {
+    fn user_leaves_channel(
         &mut self,
         user_id: UserID,
         channel_name: &str,
@@ -431,8 +509,17 @@ impl ServerState {
 
         Ok(())
     }
+}
 
-    pub(crate) fn user_disconnects_voluntarily(&mut self, user_id: UserID, reason: Option<&[u8]>) {
+impl ServerState {
+    pub(crate) fn user_disconnects_voluntarily(&self, user_id: UserID, reason: Option<&[u8]>) {
+        let mut sv = self.0.write();
+        sv.user_disconnects_voluntarily(user_id, reason)
+    }
+}
+
+impl ServerStateInner {
+    fn user_disconnects_voluntarily(&mut self, user_id: UserID, reason: Option<&[u8]>) {
         let user = &self.users[&user_id];
         let reason = reason.unwrap_or(b"Client Quit");
 
@@ -464,9 +551,18 @@ impl ServerState {
         self.channels.retain(|_, channel| !channel.users.is_empty());
         self.users.remove(&user_id);
     }
+}
 
+impl ServerState {
+    pub fn user_disconnects_suddently(&self, user_id: UserID) {
+        let mut sv = self.0.write();
+        sv.user_disconnects_suddently(user_id)
+    }
+}
+
+impl ServerStateInner {
     // TODO: hide
-    pub fn user_disconnects_suddently(&mut self, user_id: UserID) {
+    fn user_disconnects_suddently(&mut self, user_id: UserID) {
         let user = &self.users[&user_id];
         let reason = b"Disconnected suddently.";
 
@@ -490,8 +586,21 @@ impl ServerState {
         self.channels.retain(|_, channel| !channel.users.is_empty());
         self.users.remove(&user_id);
     }
+}
 
+impl ServerState {
     pub(crate) fn user_changes_nick(
+        &self,
+        user_id: UserID,
+        new_nick: &str,
+    ) -> Result<(), ServerStateError> {
+        let mut sv = self.0.write();
+        sv.user_changes_nick(user_id, new_nick)
+    }
+}
+
+impl ServerStateInner {
+    fn user_changes_nick(
         &mut self,
         user_id: UserID,
         new_nick: &str,
@@ -541,9 +650,23 @@ impl ServerState {
             .map(LookupResult::RegisteredUser);
         maybe_channel.into_iter().chain(maybe_user).next()
     }
+}
 
+impl ServerState {
     pub(crate) fn user_messages_target(
-        &mut self,
+        &self,
+        user_id: UserID,
+        target: &str,
+        content: &[u8],
+    ) -> Result<(), ServerStateError> {
+        let sv = self.0.read();
+        sv.user_messages_target(user_id, target, content)
+    }
+}
+
+impl ServerStateInner {
+    fn user_messages_target(
+        &self,
         user_id: UserID,
         target: &str,
         content: &[u8],
@@ -595,8 +718,17 @@ impl ServerState {
 
         Ok(())
     }
+}
 
-    pub(crate) fn user_notices_target(&mut self, user_id: UserID, target: &str, content: &[u8]) {
+impl ServerState {
+    pub(crate) fn user_notices_target(&self, user_id: UserID, target: &str, content: &[u8]) {
+        let sv = self.0.read();
+        sv.user_notices_target(user_id, target, content)
+    }
+}
+
+impl ServerStateInner {
+    fn user_notices_target(&self, user_id: UserID, target: &str, content: &[u8]) {
         let user = &self.users[&user_id];
 
         if content.is_empty() {
@@ -634,16 +766,29 @@ impl ServerState {
             }
         }
     }
+}
 
+impl ServerState {
     pub(crate) fn user_asks_channel_mode(
-        &mut self,
+        &self,
+        user_id: UserID,
+        channel_name: &str,
+    ) -> Result<(), ServerStateError> {
+        let sv = self.0.read();
+        sv.user_asks_channel_mode(user_id, channel_name)
+    }
+}
+
+impl ServerStateInner {
+    fn user_asks_channel_mode(
+        &self,
         user_id: UserID,
         channel_name: &str,
     ) -> Result<(), ServerStateError> {
         let user = &self.users[&user_id];
         validate_channel_name(user, channel_name)?;
 
-        let Some(channel) = self.channels.get_mut(channel_name) else {
+        let Some(channel) = self.channels.get(channel_name) else {
             return Err(ServerStateError::NoSuchChannel {
                 client: user.nickname.clone(),
                 channel: channel_name.to_string(),
@@ -659,8 +804,23 @@ impl ServerState {
         user.send(&message, &self.message_context);
         Ok(())
     }
+}
 
+impl ServerState {
     pub(crate) fn user_changes_channel_mode(
+        &self,
+        user_id: UserID,
+        channel_name: &str,
+        modechar: &str,
+        param: Option<&str>,
+    ) -> Result<(), ServerStateError> {
+        let mut sv = self.0.write();
+        sv.user_changes_channel_mode(user_id, channel_name, modechar, param)
+    }
+}
+
+impl ServerStateInner {
+    fn user_changes_channel_mode(
         &mut self,
         user_id: UserID,
         channel_name: &str,
@@ -807,8 +967,22 @@ impl ServerState {
 
         Ok(())
     }
+}
 
+impl ServerState {
     pub(crate) fn user_sets_topic(
+        &self,
+        user_id: UserID,
+        channel_name: &str,
+        content: &Vec<u8>,
+    ) -> Result<(), ServerStateError> {
+        let mut sv = self.0.write();
+        sv.user_sets_topic(user_id, channel_name, content)
+    }
+}
+
+impl ServerStateInner {
+    fn user_sets_topic(
         &mut self,
         user_id: UserID,
         channel_name: &str,
@@ -844,15 +1018,28 @@ impl ServerState {
             .for_each(|u| u.send(message, &self.message_context));
         Ok(())
     }
+}
 
+impl ServerState {
     pub(crate) fn user_wants_topic(
-        &mut self,
+        &self,
+        user_id: UserID,
+        channel_name: &str,
+    ) -> Result<(), ServerStateError> {
+        let sv = self.0.read();
+        sv.user_wants_topic(user_id, channel_name)
+    }
+}
+
+impl ServerStateInner {
+    fn user_wants_topic(
+        &self,
         user_id: UserID,
         channel_name: &str,
     ) -> Result<(), ServerStateError> {
         let user = &self.users[&user_id];
 
-        let Some(channel) = self.channels.get_mut(channel_name) else {
+        let Some(channel) = self.channels.get(channel_name) else {
             return Err(ServerStateError::NoSuchChannel {
                 client: user.nickname.clone(),
                 channel: channel_name.into(),
@@ -879,8 +1066,10 @@ impl ServerState {
         user.send(&message, &self.message_context);
         Ok(())
     }
+}
 
-    pub(crate) fn user_registers(&mut self, user: RegisteredUser) {
+impl ServerStateInner {
+    fn user_registers(&mut self, user: RegisteredUser) {
         let message = server_to_client::Message::Welcome {
             nickname: &user.nickname,
             user_fullspec: &user.fullspec(),
@@ -907,14 +1096,32 @@ impl ServerState {
 
         self.users.insert(user.user_id, user);
     }
+}
 
-    pub(crate) fn user_pings(&mut self, user_id: UserID, token: &[u8]) {
+impl ServerState {
+    pub(crate) fn user_pings(&self, user_id: UserID, token: &[u8]) {
+        let sv = self.0.read();
+        sv.user_pings(user_id, token)
+    }
+}
+
+impl ServerStateInner {
+    fn user_pings(&self, user_id: UserID, token: &[u8]) {
         let user = &self.users[&user_id];
         let message = server_to_client::Message::Pong { token };
         user.send(&message, &self.message_context);
     }
+}
 
-    pub(crate) fn user_sends_unknown_command(&mut self, user_id: UserID, command: &str) {
+impl ServerState {
+    pub(crate) fn user_sends_unknown_command(&self, user_id: UserID, command: &str) {
+        let sv = self.0.read();
+        sv.user_sends_unknown_command(user_id, command)
+    }
+}
+
+impl ServerStateInner {
+    fn user_sends_unknown_command(&self, user_id: UserID, command: &str) {
         let user = &self.users[&user_id];
         let message = server_to_client::Message::Err(ServerStateError::UnknownCommand {
             client: user.nickname.clone(),
@@ -922,20 +1129,34 @@ impl ServerState {
         });
         user.send(&message, &self.message_context);
     }
+}
 
-    pub(crate) fn user_sends_invalid_message(
-        &mut self,
-        user_id: UserID,
-        error: MessageDecodingError,
-    ) {
+impl ServerState {
+    pub(crate) fn user_sends_invalid_message(&self, user_id: UserID, error: MessageDecodingError) {
+        let sv = self.0.read();
+        sv.user_sends_invalid_message(user_id, error)
+    }
+}
+
+impl ServerStateInner {
+    fn user_sends_invalid_message(&self, user_id: UserID, error: MessageDecodingError) {
         let user = &self.users[&user_id];
         let client = user.nickname.clone();
         if let Some(err) = ServerStateError::from_decoding_error_with_client(error, client) {
             self.send_error(user_id, err);
         }
     }
+}
 
+impl ServerState {
     pub(crate) fn user_wants_motd(&self, user_id: UserID) {
+        let sv = self.0.read();
+        sv.user_wants_motd(user_id)
+    }
+}
+
+impl ServerStateInner {
+    fn user_wants_motd(&self, user_id: UserID) {
         let user = &self.users[&user_id];
         let message = server_to_client::Message::MOTD {
             client: &user.nickname,
@@ -970,8 +1191,22 @@ impl ServerState {
             ListFilter::Unknown => false,
         }
     }
+}
 
+impl ServerState {
     pub(crate) fn user_sends_list_info(
+        &self,
+        user_id: UserID,
+        list_channels: Option<Vec<String>>,
+        list_options: Option<Vec<ListOption>>,
+    ) {
+        let sv = self.0.read();
+        sv.user_sends_list_info(user_id, list_channels, list_options)
+    }
+}
+
+impl ServerStateInner {
+    fn user_sends_list_info(
         &self,
         user_id: UserID,
         list_channels: Option<Vec<String>>,
@@ -1022,8 +1257,17 @@ impl ServerState {
         };
         user.send(&message, &self.message_context);
     }
+}
 
-    pub(crate) fn user_indicates_away(&mut self, user_id: UserID, away_message: Option<&[u8]>) {
+impl ServerState {
+    pub(crate) fn user_indicates_away(&self, user_id: UserID, away_message: Option<&[u8]>) {
+        let mut sv = self.0.write();
+        sv.user_indicates_away(user_id, away_message)
+    }
+}
+
+impl ServerStateInner {
+    fn user_indicates_away(&mut self, user_id: UserID, away_message: Option<&[u8]>) {
         let user = self.users.get_mut(&user_id).unwrap();
         user.away_message = away_message.map(|m| m.into());
 
@@ -1038,8 +1282,17 @@ impl ServerState {
         };
         user.send(&message, &self.message_context);
     }
+}
 
+impl ServerState {
     pub(crate) fn user_asks_userhosts(&self, user_id: UserID, nicknames: &[String]) {
+        let sv = self.0.read();
+        sv.user_asks_userhosts(user_id, nicknames)
+    }
+}
+
+impl ServerStateInner {
+    fn user_asks_userhosts(&self, user_id: UserID, nicknames: &[String]) {
         let user = &self.users[&user_id];
         let mut replies = vec![];
         for nick in nicknames {
@@ -1059,8 +1312,17 @@ impl ServerState {
         };
         user.send(&message, &self.message_context);
     }
+}
 
+impl ServerState {
     pub(crate) fn user_asks_whois(&self, user_id: UserID, nickname: &str) {
+        let sv = self.0.read();
+        sv.user_asks_whois(user_id, nickname)
+    }
+}
+
+impl ServerStateInner {
+    fn user_asks_whois(&self, user_id: UserID, nickname: &str) {
         let user = &self.users[&user_id];
         let Some(target_user) = self.users.values().find(|&u| u.nickname == nickname) else {
             let message = server_to_client::Message::Err(ServerStateError::NoSuchNick {
@@ -1086,8 +1348,17 @@ impl ServerState {
         };
         user.send(&message, &self.message_context);
     }
+}
 
+impl ServerState {
     pub(crate) fn user_asks_who(&self, user_id: UserID, mask: &str) {
+        let sv = self.0.read();
+        sv.user_asks_who(user_id, mask)
+    }
+}
+
+impl ServerStateInner {
+    fn user_asks_who(&self, user_id: UserID, mask: &str) {
         let user = &self.users[&user_id];
 
         // mask patterns are not handled
@@ -1150,8 +1421,17 @@ impl ServerState {
         };
         user.send(&message, &self.message_context);
     }
+}
 
+impl ServerState {
     pub(crate) fn user_asks_lusers(&self, user_id: UserID) {
+        let sv = self.0.read();
+        sv.user_asks_lusers(user_id)
+    }
+}
+
+impl ServerStateInner {
+    fn user_asks_lusers(&self, user_id: UserID) {
         let user = &self.users[&user_id];
 
         let message = server_to_client::Message::LUsers {
@@ -1165,10 +1445,6 @@ impl ServerState {
         };
         user.send(&message, &self.message_context);
     }
-}
-
-pub trait MOTDProvider {
-    fn motd(&self) -> Option<Vec<Vec<u8>>>;
 }
 
 fn validate_channel_name(
@@ -1206,7 +1482,7 @@ mod tests {
 
     #[test]
     fn test_nick_change_same() -> Result<(), ServerStateError> {
-        let mut server_state = new_server_state();
+        let server_state = new_server_state();
         let nick1 = "test";
 
         let (user1, _rx1) = server_state.new_registering_user();
@@ -1225,7 +1501,7 @@ mod tests {
 
     #[test]
     fn test_nick_change_homoglyph() -> Result<(), ServerStateError> {
-        let mut server_state = new_server_state();
+        let server_state = new_server_state();
         let nick1 = "test";
         let nick2 = "tėst";
 

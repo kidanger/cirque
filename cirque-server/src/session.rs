@@ -1,8 +1,8 @@
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use cirque_core::RegisteringState;
+use cirque_core::ServerState;
 use cirque_core::SessionState;
-use cirque_core::SharedServerState;
 use cirque_parser::{LendingIterator, MessageIteratorError, StreamParser};
 
 use crate::transport::AnyStream;
@@ -16,10 +16,10 @@ impl Session {
         Self { stream }
     }
 
-    pub(crate) async fn run(mut self, server_state: SharedServerState) -> anyhow::Result<()> {
+    pub(crate) async fn run(mut self, server_state: ServerState) -> anyhow::Result<()> {
         let mut stream_parser = StreamParser::default();
 
-        let (user_id, mut rx) = server_state.lock().new_registering_user();
+        let (user_id, mut rx) = server_state.new_registering_user();
         let mut state = SessionState::Registering(RegisteringState::new(user_id));
 
         while !state.client_disconnected_voluntarily() {
@@ -46,8 +46,7 @@ impl Session {
                             }
                         };
 
-                        let mut server_state = server_state.lock();
-                        state = state.handle_message(&mut server_state, message);
+                        state = state.handle_message(&server_state, message);
                     }
                     if reset_buffer {
                         stream_parser.clear();
@@ -71,10 +70,10 @@ impl Session {
             //self.stream.flush().await?;
         } else if let SessionState::Registering(_) = state {
             // the connection was closed without notification
-            server_state.lock().ruser_disconnects_suddently(user_id);
+            server_state.ruser_disconnects_suddently(user_id);
         } else if let SessionState::Registered(_) = state {
             // the connection was closed without notification
-            server_state.lock().user_disconnects_suddently(user_id);
+            server_state.user_disconnects_suddently(user_id);
         }
 
         Ok(())

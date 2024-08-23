@@ -44,6 +44,6 @@ async fn main() -> anyhow::Result<()> {
         filename: "motd.txt".to_string(),
     });
 
-    let server_state = ServerState::new(server_name, &welcome_config, motd_provider, None).shared();
+    let server_state = ServerState::new(server_name, &welcome_config, motd_provider, None);
     cirque_server::run_server(AnyListener::Tcp(listener), server_state).await
 }

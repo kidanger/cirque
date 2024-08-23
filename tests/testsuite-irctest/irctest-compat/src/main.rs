@@ -48,7 +48,6 @@ async fn main() -> anyhow::Result<()> {
     });
     let password = args.password.map(|p| p.as_bytes().into());
 
-    let server_state =
-        ServerState::new(server_name, &welcome_config, motd_provider, password).shared();
+    let server_state = ServerState::new(server_name, &welcome_config, motd_provider, password);
     cirque_server::run_server(AnyListener::Tcp(listener), server_state).await
 }

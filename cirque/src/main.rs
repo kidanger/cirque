@@ -62,8 +62,7 @@ async fn main() -> Result<(), anyhow::Error> {
             &welcome_config,
             Arc::new(FixedMOTDProvider(config.motd)),
             config.password.map(|p| p.as_bytes().into()),
-        )
-        .shared();
+        );
         let listener = TLSListener::try_new(certs, private_key).await?;
 
         (
@@ -76,8 +75,7 @@ async fn main() -> Result<(), anyhow::Error> {
             &welcome_config,
             Arc::new(FixedMOTDProvider(None)),
             None,
-        )
-        .shared();
+        );
         let listener = TCPListener::try_new(6667).await?;
 
         (
@@ -100,10 +98,9 @@ async fn main() -> Result<(), anyhow::Error> {
                     continue;
                 };
 
-                let mut server_state = server_state.lock();
+                server_state.set_server_name(&config.server_name);
                 let password = config.password.as_ref().map(|p| p.as_bytes());
                 server_state.set_password(password);
-                server_state.set_server_name(&config.server_name);
                 let motd_provider = Arc::new(FixedMOTDProvider(config.motd));
                 server_state.set_motd_provider(motd_provider);
             }
