@@ -2,7 +2,7 @@ use std::{io::Write, marker::PhantomData};
 
 use tokio::sync::mpsc::{error::TryRecvError, UnboundedReceiver, UnboundedSender};
 
-use crate::server_to_client::{Message, MessageContext};
+use crate::server_to_client::{self, MessageContext};
 
 const IRC_MESSAGE_MAX_SIZE: usize = 512;
 
@@ -19,7 +19,7 @@ impl Mailbox {
         (Self { sender }, MailboxSink { receiver })
     }
 
-    pub(crate) fn ingest(&self, message: &Message, context: &MessageContext) {
+    pub(crate) fn ingest(&self, message: &server_to_client::Message<'_>, context: &MessageContext) {
         let mut mw = MessageWriter { mailbox: self };
         message.write_to(&mut mw, context);
     }

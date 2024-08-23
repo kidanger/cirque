@@ -44,7 +44,7 @@ fn host(buf: &[u8]) -> IResult<&[u8], &[u8]> {
 
 /// NOTE: The following implementation and the functions above does not respect the specification,
 ///       simply because an IRC server never receives a source.
-fn parse_source_inner(buf: &[u8]) -> IResult<&[u8], Source> {
+fn parse_source_inner(buf: &[u8]) -> IResult<&[u8], Source<'_>> {
     let (buf, nickname) = nickname(buf)?;
     let (buf, user) = opt(preceded(char('!'), user))(buf)?;
     let (buf, host) = opt(preceded(char('@'), host))(buf)?;
@@ -60,7 +60,7 @@ fn parse_source_inner(buf: &[u8]) -> IResult<&[u8], Source> {
 // source ::= <servername> / ( <nickname> [ "!" <user> ] [ "@" <host> ] )
 // nick ::= <any characters except NUL, CR, LF, chantype character, and SPACE> <possibly empty sequence of any characters except NUL, CR, LF, and SPACE>
 // user ::= <sequence of any characters except NUL, CR, LF, and SPACE>
-fn parse_source(buf: &[u8]) -> IResult<&[u8], Source> {
+fn parse_source(buf: &[u8]) -> IResult<&[u8], Source<'_>> {
     let colon = char(':');
     let (buf, source) = preceded(colon, parse_source_inner)(buf)?;
     Ok((buf, source))
@@ -75,10 +75,10 @@ fn parse_command(buf: &[u8]) -> IResult<&[u8], &Command> {
     Ok((buf, command))
 }
 
-fn parse_parameters(mut buf: &[u8]) -> IResult<&[u8], Parameters> {
+fn parse_parameters(mut buf: &[u8]) -> IResult<&[u8], Parameters<'_>> {
     let is_space = |c: u8| -> bool { c == b' ' };
 
-    let mut params: Parameters = smallvec::smallvec!();
+    let mut params: Parameters<'_> = smallvec::smallvec!();
     loop {
         if buf.is_empty() {
             break;
@@ -102,7 +102,7 @@ fn parse_parameters(mut buf: &[u8]) -> IResult<&[u8], Parameters> {
 }
 
 // message ::= ['@' <tags> SPACE] [':' <source> SPACE] <command> <parameters> <crlf>
-pub fn parse_message(buf: &[u8]) -> IResult<&[u8], Message> {
+pub fn parse_message(buf: &[u8]) -> IResult<&[u8], Message<'_>> {
     let space = &char(' ');
     let (buf, _) = space0(buf)?;
     let (buf, source) = opt(terminated(parse_source, many1(space)))(buf)?;
@@ -147,7 +147,6 @@ mod tests {
         #[test]
         fn fail_1digit() {
             let result = all_consuming(parse_command)(b"0");
-            dbg!(&result);
             assert!(result.is_err());
         }
 
@@ -160,7 +159,6 @@ mod tests {
         #[test]
         fn success_3digit() {
             let (buf, cmd) = all_consuming(parse_command)(b"000").unwrap();
-            dbg!((buf, cmd));
             assert!(buf.is_empty());
             assert_eq!(cmd, b"000");
         }

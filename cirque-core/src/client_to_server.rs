@@ -41,7 +41,6 @@ pub(crate) enum Message {
     Notice(String, Vec<u8>),
     Part(Vec<ChannelID>, Option<Vec<u8>>),
     List(Option<Vec<String>>, Option<Vec<ListOption>>),
-    WhoWas(String, Option<usize>),
     #[allow(clippy::upper_case_acronyms)]
     MOTD(),
     Away(Option<Vec<u8>>),
@@ -66,7 +65,7 @@ pub(crate) enum MessageDecodingError {
 impl TryFrom<&cirque_parser::Message<'_>> for Message {
     type Error = MessageDecodingError;
 
-    fn try_from(message: &cirque_parser::Message) -> Result<Self, Self::Error> {
+    fn try_from(message: &cirque_parser::Message<'_>) -> Result<Self, Self::Error> {
         let str = |s: Vec<u8>| -> Result<String, MessageDecodingError> {
             String::from_utf8(s).map_err(|_| MessageDecodingError::CannotDecodeUtf8 {
                 command: message.command().to_vec(),
@@ -220,21 +219,6 @@ impl TryFrom<&cirque_parser::Message<'_>> for Message {
                     .collect::<Vec<_>>();
                 let reason = params.get(1).map(|e| e.to_vec());
                 Message::Part(channels, reason)
-            }
-            b"WHOWAS" => {
-                let target = str(opt(message.first_parameter_as_vec())?)?;
-                let count = if let Some(count) = params.get(1) {
-                    let count = str(count.to_vec())?;
-                    let count = count.parse::<usize>().map_err(|_| {
-                        MessageDecodingError::CannotParseInteger {
-                            command: message.command().to_vec(),
-                        }
-                    })?;
-                    Some(count)
-                } else {
-                    None
-                };
-                Message::WhoWas(target, count)
             }
             b"LIST" => {
                 let mut start_index = 0;

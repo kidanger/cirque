@@ -17,3 +17,6 @@ cirque-server = { path = "../cirque-server" }
 
 [dev-dependencies]
 rstest = "0.22.0"
+
+[lints]
+workspace = true

@@ -34,7 +34,7 @@ impl StreamParser {
         self.buffer.extend_from_slice(buf);
     }
 
-    pub fn consume_iter(&mut self) -> MessageIterator {
+    pub fn consume_iter(&mut self) -> MessageIterator<'_> {
         MessageIterator {
             stream_parser: self,
             buffer_is_full: false,
@@ -145,7 +145,7 @@ impl LendingIterator for MessageIterator<'_> {
         Self: 'next,
     = Result<Message<'next>, MessageIteratorError>;
 
-    fn next(&mut self) -> Option<Result<Message, MessageIteratorError>> {
+    fn next(&mut self) -> Option<Result<Message<'_>, MessageIteratorError>> {
         if self.buffer_is_full {
             return None;
         }

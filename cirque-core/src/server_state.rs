@@ -6,7 +6,9 @@ use crate::client_to_server::{ListFilter, ListOperation, ListOption, MessageDeco
 use crate::error::ServerStateError;
 use crate::message_writer::MailboxSink;
 use crate::nickname::cure_nickname;
-use crate::server_to_client::{self, ChannelInfo, MessageContext, UserhostReply, WhoReply};
+use crate::server_to_client::{
+    self, ChannelInfo, MessageContext, NamesReply, UserhostReply, WhoReply,
+};
 use crate::types::{
     Channel, ChannelMode, ChannelUserMode, RegisteredUser, RegisteringUser, UserID, WelcomeConfig,
 };
@@ -312,7 +314,7 @@ impl ServerState {
         };
         for (user_id, user_mode) in &channel.users {
             let user: &RegisteredUser = &self.users[user_id];
-            nicknames.push((user.nickname.clone(), user_mode.clone()));
+            nicknames.push((&user.nickname, user_mode));
             user.send(&message, &self.message_context);
         }
 
@@ -328,7 +330,11 @@ impl ServerState {
 
         let message = server_to_client::Message::Names {
             client: &user.nickname,
-            names: vec![(channel_name, &channel.mode, nicknames)],
+            names: &[NamesReply {
+                channel_name,
+                channel_mode: &channel.mode,
+                nicknames: &nicknames,
+            }],
         };
         user.send(&message, &self.message_context);
 
@@ -364,12 +370,16 @@ impl ServerState {
         let mut nicknames = vec![];
         for (user_id, user_mode) in &channel.users {
             let user: &RegisteredUser = &self.users[user_id];
-            nicknames.push((user.nickname.clone(), user_mode.clone()));
+            nicknames.push((&user.nickname, user_mode));
         }
 
         let message = server_to_client::Message::Names {
             client: &user.nickname,
-            names: vec![(channel_name, &channel.mode, nicknames)],
+            names: &[NamesReply {
+                channel_name,
+                channel_mode: &channel.mode,
+                nicknames: &nicknames,
+            }],
         };
         user.send(&message, &self.message_context);
         Ok(())
@@ -980,7 +990,7 @@ impl ServerState {
                 is_valid
             })
             .map(|(channel_name, channel)| ChannelInfo {
-                name: &channel_name,
+                name: channel_name,
                 count: channel.users.len(),
                 topic: &channel.topic.content,
             })

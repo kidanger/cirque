@@ -32,6 +32,13 @@ pub(crate) struct WhoReply<'a> {
 }
 
 #[derive(Debug, Clone)]
+pub(crate) struct NamesReply<'a> {
+    pub(crate) channel_name: &'a str,
+    pub(crate) channel_mode: &'a ChannelMode,
+    pub(crate) nicknames: &'a [(&'a String, &'a ChannelUserMode)],
+}
+
+#[derive(Debug, Clone)]
 pub(crate) enum Message<'a> {
     Welcome {
         nickname: &'a str,
@@ -48,7 +55,8 @@ pub(crate) enum Message<'a> {
     },
     Names {
         client: &'a str,
-        names: Vec<(&'a str, &'a ChannelMode, Vec<(String, ChannelUserMode)>)>,
+        //names: Vec<(&'a str, &'a ChannelMode, Vec<(String, ChannelUserMode)>)>,
+        names: &'a [NamesReply<'a>],
     },
     /// only used on NAMES command when the channel is invalid or does not exist
     EndOfNames {
@@ -165,7 +173,7 @@ pub(crate) struct MessageContext {
 }
 
 impl Message<'_> {
-    pub(crate) fn write_to(&self, stream: &mut MessageWriter, context: &MessageContext) {
+    pub(crate) fn write_to(&self, stream: &mut MessageWriter<'_>, context: &MessageContext) {
         let sv = &context.server_name;
         match self {
             Message::Welcome {
@@ -239,7 +247,12 @@ impl Message<'_> {
                 message!(stream, b":", previous_user_fullspec, b" NICK :", nickname);
             }
             Message::Names { names, client } => {
-                for (channel, channel_mode, nicknames) in names {
+                for NamesReply {
+                    channel_name,
+                    channel_mode,
+                    nicknames,
+                } in *names
+                {
                     let mut m = stream.new_message();
                     message_push!(
                         m,
@@ -251,7 +264,7 @@ impl Message<'_> {
                             true => b" @ ",
                             false => b" = ",
                         },
-                        &channel,
+                        channel_name,
                         b" :"
                     );
                     for (i, (nick, user_mode)) in nicknames.iter().enumerate() {
@@ -260,7 +273,7 @@ impl Message<'_> {
                         } else if user_mode.is_voice() {
                             m = m.write(b"+");
                         }
-                        m = m.write(&nick);
+                        m = m.write(nick);
                         if i != nicknames.len() - 1 {
                             m = m.write(b" ")
                         }
@@ -274,7 +287,7 @@ impl Message<'_> {
                         b" 366 ",
                         client,
                         b" ",
-                        channel,
+                        channel_name,
                         b" :End of NAMES list"
                     );
                 }

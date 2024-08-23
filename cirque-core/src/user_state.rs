@@ -14,7 +14,7 @@ impl RegisteringState {
     fn handle_message(
         self,
         server_state: &mut ServerState,
-        message: cirque_parser::Message,
+        message: cirque_parser::Message<'_>,
     ) -> SessionState {
         let message = match client_to_server::Message::try_from(&message) {
             Ok(message) => message,
@@ -77,7 +77,7 @@ impl RegisteredState {
     fn handle_message(
         self,
         server_state: &mut ServerState,
-        message: cirque_parser::Message,
+        message: cirque_parser::Message<'_>,
     ) -> SessionState {
         let message = match client_to_server::Message::try_from(&message) {
             Ok(message) => message,
@@ -134,7 +134,7 @@ impl RegisteredState {
             client_to_server::Message::Ping(token) => {
                 server_state.user_pings(self.user_id, &token);
             }
-            client_to_server::Message::Pong(_) => {}
+            client_to_server::Message::Pong(_token) => {}
             client_to_server::Message::Quit(reason) => {
                 server_state.user_disconnects_voluntarily(self.user_id, reason.as_deref());
                 return SessionState::Disconnected {};
@@ -183,7 +183,8 @@ impl RegisteredState {
                 server_state.user_sends_list_info(self.user_id, list_channels, list_option);
             }
             _ => {
-                println!("illegal command from connected client");
+                // TODO: log
+                //println!("illegal command from connected client");
             }
         };
 
@@ -210,7 +211,7 @@ impl SessionState {
     pub fn handle_message(
         self,
         server_state: &mut ServerState,
-        message: cirque_parser::Message,
+        message: cirque_parser::Message<'_>,
     ) -> SessionState {
         match self {
             SessionState::Registering(session_state) => {

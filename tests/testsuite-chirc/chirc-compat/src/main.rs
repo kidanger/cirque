@@ -39,7 +39,6 @@ async fn main() -> anyhow::Result<()> {
     let server_name = "srv";
     let welcome_config = WelcomeConfig {
         send_isupport: false,
-        ..Default::default()
     };
     let motd_provider = Arc::new(FileMOTDProvider {
         filename: "motd.txt".to_string(),

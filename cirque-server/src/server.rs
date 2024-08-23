@@ -10,14 +10,14 @@ fn handle_client(server_state: SharedServerState, stream: anyhow::Result<AnyStre
         let stream = stream?;
         let stream = stream.with_debug();
         Session::init(stream).run(server_state).await?;
-
-        dbg!("client dropped");
+        // TODO: log
         anyhow::Ok(())
     };
 
     tokio::spawn(async move {
-        if let Err(err) = fut.await {
-            eprintln!("{:?}", err);
+        if let Err(_err) = fut.await {
+            // TODO: log
+            //eprintln!("{:?}", err);
         }
     });
 }

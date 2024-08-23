@@ -11,3 +11,7 @@ thiserror = "1.0.63"
 decancer = { version = "3.2.4", default-features = false, features = [] }
 
 cirque-parser = { path = "../cirque-parser" }
+
+[lints]
+workspace = true
+

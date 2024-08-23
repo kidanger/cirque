@@ -28,7 +28,7 @@ pub struct RegisteredUser {
 }
 
 impl RegisteredUser {
-    pub(crate) fn send(&self, message: &server_to_client::Message, context: &MessageContext) {
+    pub(crate) fn send(&self, message: &server_to_client::Message<'_>, context: &MessageContext) {
         self.mailbox.ingest(message, context);
     }
 
@@ -75,7 +75,7 @@ impl RegisteringUser {
         (user, mailbox_sink)
     }
 
-    pub(crate) fn send(&self, message: &server_to_client::Message, context: &MessageContext) {
+    pub(crate) fn send(&self, message: &server_to_client::Message<'_>, context: &MessageContext) {
         self.mailbox.ingest(message, context);
     }
 

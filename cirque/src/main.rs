@@ -30,25 +30,22 @@ fn read_config(
         anyhow::bail!("cannot load config");
     };
 
-    let mut certs = None;
-    if let Some(ref cert_file_path) = config.cert_file_path {
-        certs = Some(
-            rustls_pemfile::certs(&mut BufReader::new(&mut File::open(cert_file_path)?))
-                .collect::<Result<Vec<_>, _>>()?,
-        );
-    }
-    let mut private_key = None;
-    if let Some(ref private_key_file_path) = config.private_key_file_path {
-        private_key = rustls_pemfile::private_key(&mut BufReader::new(&mut File::open(
-            private_key_file_path,
-        )?))?;
-    }
-
-    if certs.is_some() && private_key.is_some() {
-        Ok((config, certs.unwrap(), private_key.unwrap()))
+    let certs = if let Some(path) = &config.cert_file_path {
+        let mut file = File::open(path)?;
+        rustls_pemfile::certs(&mut BufReader::new(&mut file)).collect::<Result<Vec<_>, _>>()?
     } else {
-        anyhow::bail!("Config incomplete");
-    }
+        anyhow::bail!("cannot load certificates");
+    };
+
+    let private_key = if let Some(path) = &config.private_key_file_path {
+        let mut file = File::open(path)?;
+        rustls_pemfile::private_key(&mut BufReader::new(&mut file))?
+            .ok_or_else(|| anyhow::anyhow!("cannot load private key"))?
+    } else {
+        anyhow::bail!("cannot load private key");
+    };
+
+    Ok((config, certs, private_key))
 }
 
 #[tokio::main]
@@ -74,7 +71,6 @@ async fn main() -> Result<(), anyhow::Error> {
             server_state,
         )
     } else {
-        dbg!("listening without TLS on 6667");
         let server_state = ServerState::new(
             "srv",
             &welcome_config,
@@ -99,10 +95,8 @@ async fn main() -> Result<(), anyhow::Error> {
                 break;
             },
             _ = reload_signal.recv() => {
-                dbg!("hup");
-
                 let Ok((config, _, _)) = read_config(&config_path) else {
-                    dbg!("cannot read config?");
+                    // TODO: warn
                     continue;
                 };
 

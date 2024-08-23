@@ -27,7 +27,6 @@ if __name__ == "__main__":
         "CHANNEL_PART",
         "QUIT_CHANNEL",
         "NICK_CHANNEL",
-        "CONNECTION_REGISTRATION",
         "PRIVMSG_NOTICE",
         "MOTD",
         "AWAY",
@@ -53,6 +52,8 @@ if __name__ == "__main__":
         #   or assume some specific string formatting
         #   or require invisible users
         #   or do not agree on the exact error code
+        # "CONNECTION_REGISTRATION",
+        #   requires basic WHOWAS
 
         # ROBUST?
     ]:

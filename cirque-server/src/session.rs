@@ -40,8 +40,8 @@ impl Session {
                                 reset_buffer = true;
                                 break;
                             }
-                            Err(MessageIteratorError::ParsingError(e)) => {
-                                dbg!("weird message: {}", e);
+                            Err(MessageIteratorError::ParsingError(_e)) => {
+                                // TODO: log
                                 continue;
                             }
                         };
