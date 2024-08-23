@@ -7,7 +7,6 @@ pub(crate) enum ListFilter {
     TopicUpdate,
     #[default]
     UserNumber,
-    Unknown,
 }
 
 #[derive(Debug, Default, PartialEq)]
@@ -15,7 +14,6 @@ pub(crate) enum ListOperation {
     #[default]
     Inf,
     Sup,
-    Unknown,
 }
 #[derive(Debug, Default)]
 pub(crate) struct ListOption {
@@ -222,65 +220,67 @@ impl TryFrom<&cirque_parser::Message<'_>> for Message {
                 Message::Part(channels, reason)
             }
             b"LIST" => {
-                let mut start_index = 0;
-                let mut channels: Option<Vec<String>> = None;
-                if let Some(first_parameter) = message.first_parameter() {
-                    channels = Some(
-                        first_parameter
+                let (channels, start_index) =
+                    if let Some(first_parameter) = message.first_parameter() {
+                        let chans = first_parameter
                             .split(|&c| c == b',')
                             .flat_map(|s| String::from_utf8(s.to_owned()))
                             .map(|mut s| {
                                 s.make_ascii_lowercase();
                                 s
                             })
-                            .collect::<Vec<_>>(),
-                    );
-                    if channels.as_ref().is_some() && !channels.as_ref().unwrap().is_empty() {
-                        start_index = 1;
-                    }
-                };
-
-                let mut list_options: Vec<ListOption> = Vec::new();
-                for param_index in start_index..message.parameters().len() {
-                    let mut list_option: ListOption = ListOption {
-                        ..Default::default()
+                            .collect::<Vec<_>>();
+                        let empty = chans.is_empty();
+                        (Some(chans), if empty { 0 } else { 1 })
+                    } else {
+                        (None, 0)
                     };
 
+                let mut list_options = Vec::new();
+                for (param_index, option) in
+                    params.get(start_index..).into_iter().flatten().enumerate()
+                {
+                    // offset because enumerate starts at 0 and not param_index
+                    let param_index = param_index + start_index;
+
+                    let mut list_option: ListOption = Default::default();
+
+                    // TODO/kid: not sure this implementation is correct, the spec is not clear
+
                     let mut index = param_index;
-                    let option = message.parameters().get(param_index);
-                    if let Some(option) = option {
-                        let option = option.first().unwrap();
-                        if option.is_ascii() {
-                            list_option.filter = match option {
-                                b'C' => ListFilter::ChannelCreation,
-                                b'U' => ListFilter::UserNumber,
-                                b'T' => ListFilter::TopicUpdate,
-                                _ => ListFilter::Unknown,
-                            };
-                            if list_option.filter == ListFilter::Unknown {
+                    let Some(option) = option.first() else {
+                        return Err(MessageDecodingError::NotEnoughParameters {
+                            command: str(message.command().to_vec())?,
+                        });
+                    };
+                    if option.is_ascii() {
+                        list_option.filter = match option {
+                            b'C' => ListFilter::ChannelCreation,
+                            b'U' => ListFilter::UserNumber,
+                            b'T' => ListFilter::TopicUpdate,
+                            _ => {
                                 return Err(MessageDecodingError::NotEnoughParameters {
                                     command: str(message.command().to_vec())?,
                                 });
-                            } else {
-                                index += 1;
                             }
-                        }
+                        };
+                        index += 1;
                     }
+
                     let operation = message.parameters().get(param_index + index);
                     if let Some(operation) = operation {
                         list_option.operation = match *operation {
                             b"<" => ListOperation::Inf,
                             b">" => ListOperation::Sup,
-                            _ => ListOperation::Unknown,
+                            _ => {
+                                return Err(MessageDecodingError::NotEnoughParameters {
+                                    command: str(message.command().to_vec())?,
+                                })
+                            }
                         };
-                        if list_option.operation == ListOperation::Unknown {
-                            return Err(MessageDecodingError::NotEnoughParameters {
-                                command: str(message.command().to_vec())?,
-                            });
-                        } else {
-                            index += 1;
-                        }
+                        index += 1;
                     }
+
                     let number = message.parameters().get(param_index + index);
                     if let Some(number) = number {
                         let count = str(number.to_vec())?;

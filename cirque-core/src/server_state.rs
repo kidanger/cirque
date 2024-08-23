@@ -1175,19 +1175,15 @@ impl ServerStateInner {
             ListFilter::ChannelCreation => match list_option.operation {
                 ListOperation::Inf => false,
                 ListOperation::Sup => false,
-                ListOperation::Unknown => false,
             },
             ListFilter::TopicUpdate => match list_option.operation {
                 ListOperation::Inf => channel.topic.ts.div(60) - current_time < list_option.number,
                 ListOperation::Sup => channel.topic.ts.div(60) - current_time > list_option.number,
-                ListOperation::Unknown => false,
             },
             ListFilter::UserNumber => match list_option.operation {
                 ListOperation::Inf => channel.users.len() > list_option.number as usize,
                 ListOperation::Sup => channel.users.len() < list_option.number as usize,
-                ListOperation::Unknown => false,
             },
-            ListFilter::Unknown => false,
         }
     }
 }
