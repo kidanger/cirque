@@ -1,3 +1,4 @@
+//#![deny(clippy::indexing_slicing)]
 use crate::types::ChannelID;
 
 #[derive(Debug, Default, PartialEq)]

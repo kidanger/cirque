@@ -1,3 +1,4 @@
+//#![deny(clippy::indexing_slicing)]
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -158,7 +159,8 @@ impl ServerState {
                 &self.message_context,
             );
         } else {
-            panic!("user not found");
+            // TODO: log
+            //panic!("user not found");
         }
     }
 }
@@ -717,7 +719,14 @@ impl ServerState {
                 let new_target_mode = match modechar {
                     "+o" => cur_target_mode.with_op(),
                     "+v" => cur_target_mode.with_voice(),
-                    _ => panic!(),
+                    _ => {
+                        // remove the + or -
+                        let letters = modechar.chars().skip(1).collect();
+                        return Err(ServerStateError::UnknownMode {
+                            client: user.nickname.clone(),
+                            modechar: letters,
+                        });
+                    }
                 };
                 if *cur_target_mode != new_target_mode {
                     *cur_target_mode = new_target_mode;
@@ -745,7 +754,14 @@ impl ServerState {
                 let new_target_mode = match modechar {
                     "-o" => cur_target_mode.without_op(),
                     "-v" => cur_target_mode.without_voice(),
-                    _ => panic!(),
+                    _ => {
+                        // remove the + or -
+                        let letters = modechar.chars().skip(1).collect();
+                        return Err(ServerStateError::UnknownMode {
+                            client: user.nickname.clone(),
+                            modechar: letters,
+                        });
+                    }
                 };
                 if *cur_target_mode != new_target_mode {
                     *cur_target_mode = new_target_mode;
@@ -1167,6 +1183,7 @@ fn validate_channel_name(
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::panic_in_result_fn)]
     use super::*;
 
     #[derive(Debug)]

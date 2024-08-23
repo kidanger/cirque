@@ -74,12 +74,12 @@ impl Config {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::panic_in_result_fn)]
 
     use std::fs;
     use std::{path::PathBuf, str::FromStr};
 
     use crate::config::Config;
-    use rstest::*;
     use yaml_rust2::{Yaml, YamlLoader};
 
     fn default_yaml_path() -> Result<PathBuf, anyhow::Error> {
@@ -87,7 +87,7 @@ mod tests {
         Ok(PathBuf::from_str(workspace_path)?.join("../assets/default.yml"))
     }
 
-    #[rstest]
+    #[test]
     fn load_valid_config_from_path() -> Result<(), anyhow::Error> {
         let config = Config::load_from_path(&default_yaml_path()?)?;
         assert!(config.cert_file_path.is_some());
@@ -96,7 +96,7 @@ mod tests {
         Ok(())
     }
 
-    #[rstest]
+    #[test]
     fn load_valid_config_from_str() -> Result<(), anyhow::Error> {
         let config = Config::load_from_str(fs::read_to_string(default_yaml_path()?)?.as_str())?;
         assert!(config.cert_file_path.is_some());
@@ -105,7 +105,7 @@ mod tests {
         Ok(())
     }
 
-    #[rstest]
+    #[test]
     fn load_valid_config() -> Result<(), anyhow::Error> {
         let mut docs =
             YamlLoader::load_from_str(fs::read_to_string(default_yaml_path()?)?.as_str())?;
@@ -125,7 +125,7 @@ mod tests {
         Ok(())
     }
 
-    #[rstest]
+    #[test]
     fn load_unvalid_config() -> Result<(), anyhow::Error> {
         let mut docs =
             YamlLoader::load_from_str(fs::read_to_string(default_yaml_path()?)?.as_str())?;
