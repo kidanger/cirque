@@ -45,22 +45,17 @@ impl Config {
             .ok_or(anyhow::anyhow!("invalid yaml document"))?;
 
         // Index access for map & array
-        let server_name = yaml_path!(doc, "server_name").as_str().unwrap().into();
-        let password = yaml_path!(doc, "password").as_str().map(|s| s.to_owned());
-        let motd = yaml_path!(doc, "motd").as_str().map(|s| s.to_owned());
+        let Some(server_name) = yaml_path!(doc, "server_name").as_str().map(Into::into) else {
+            anyhow::bail!("config: missing field `server_name`");
+        };
+        let password = yaml_path!(doc, "password").as_str().map(Into::into);
+        let motd = yaml_path!(doc, "motd").as_str().map(Into::into);
 
         let tls_cert = yaml_path!(doc, "tls", "cert").as_str();
         let tls_key = yaml_path!(doc, "tls", "key").as_str();
 
-        let mut cert_file_path: Option<PathBuf> = None;
-        if let Some(tls_cert) = tls_cert {
-            cert_file_path = Some(PathBuf::from_str(tls_cert)?);
-        }
-
-        let mut private_key_file_path: Option<PathBuf> = None;
-        if let Some(tls_key) = tls_key {
-            private_key_file_path = Some(PathBuf::from_str(tls_key)?);
-        }
+        let cert_file_path = tls_cert.map(PathBuf::from_str).transpose()?;
+        let private_key_file_path = tls_key.map(PathBuf::from_str).transpose()?;
 
         Ok(Self {
             server_name,
