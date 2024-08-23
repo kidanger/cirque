@@ -90,6 +90,8 @@ impl RegisteringUser {
 
 impl From<RegisteringUser> for RegisteredUser {
     fn from(value: RegisteringUser) -> Self {
+        // we assert that the registration is valid, so the unwraps are fine
+        #![allow(clippy::unwrap_used)]
         assert!(value.is_ready());
         Self {
             user_id: value.user_id,

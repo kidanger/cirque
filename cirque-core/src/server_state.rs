@@ -99,9 +99,10 @@ impl ServerState {
             }
         }
 
-        let nickname_is_valid = !nickname.is_empty() && {
-            let first_char = nickname.chars().nth(0).unwrap();
+        let nickname_is_valid = if let Some(first_char) = nickname.chars().nth(0) {
             first_char.is_alphanumeric() || first_char == '_'
+        } else {
+            false
         };
 
         if !nickname_is_valid {
@@ -124,7 +125,7 @@ impl ServerState {
             .filter(|u| Some(u.user_id) != user_id)
             .any(|u| {
                 cure_nickname(&u.nickname)
-                    .unwrap()
+                    .unwrap_or_default()
                     .eq_ignore_ascii_case(&cured)
             });
         let another_ruser_has_same_nick = self
@@ -825,7 +826,7 @@ impl ServerState {
         channel.topic.content.clone_from(content);
         channel.topic.ts = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or_default()
             .as_secs();
         channel.topic.from_nickname.clone_from(&user.nickname);
 
@@ -945,7 +946,7 @@ impl ServerState {
         use std::ops::Div;
         let current_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or_default()
             .as_secs()
             .div(60);
         match list_option.filter {
@@ -960,8 +961,8 @@ impl ServerState {
                 ListOperation::Unknown => false,
             },
             ListFilter::UserNumber => match list_option.operation {
-                ListOperation::Inf => channel.users.len() > list_option.number.try_into().unwrap(),
-                ListOperation::Sup => channel.users.len() < list_option.number.try_into().unwrap(),
+                ListOperation::Inf => channel.users.len() > list_option.number as usize,
+                ListOperation::Sup => channel.users.len() < list_option.number as usize,
                 ListOperation::Unknown => false,
             },
             ListFilter::Unknown => false,
