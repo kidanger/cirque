@@ -89,16 +89,16 @@ impl TryFrom<&cirque_parser::Message<'_>> for Message {
             }
             b"USER" => {
                 let user = str(opt(message.first_parameter_as_vec())?)?;
-                if user.is_empty() {
-                    return Err(MessageDecodingError::NotEnoughParameters {
-                        command: str(message.command().to_vec())?,
-                    });
-                }
                 let Some(realname) = params.get(3).map(|p| p.to_vec()) else {
                     return Err(MessageDecodingError::NotEnoughParameters {
                         command: str(message.command().to_vec())?,
                     });
                 };
+                if user.is_empty() || realname.is_empty() {
+                    return Err(MessageDecodingError::NotEnoughParameters {
+                        command: str(message.command().to_vec())?,
+                    });
+                }
                 Message::User(user, realname)
             }
             b"PASS" => {
