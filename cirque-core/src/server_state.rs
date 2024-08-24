@@ -1,4 +1,4 @@
-//#![deny(clippy::indexing_slicing)]
+#![warn(clippy::indexing_slicing)]
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -70,6 +70,20 @@ impl ServerState {
 }
 
 impl ServerStateInner {
+    fn lookup_target<'r>(&'r self, target: &str) -> Option<LookupResult<'r>> {
+        let maybe_channel = self
+            .channels
+            .iter()
+            .find(|(name, _)| name.eq_ignore_ascii_case(target))
+            .map(|(name, channel)| LookupResult::Channel(name, channel));
+        let maybe_user = self
+            .users
+            .values()
+            .find(|&u| u.nickname.eq_ignore_ascii_case(target))
+            .map(LookupResult::RegisteredUser);
+        maybe_channel.into_iter().chain(maybe_user).next()
+    }
+
     fn check_nickname(
         &self,
         nickname: &str,
@@ -116,9 +130,9 @@ impl ServerStateInner {
             .values()
             .filter(|u| Some(u.user_id) != user_id)
             .any(|u| {
-                decancer::cure!(u.nickname.as_deref().unwrap_or_default())
-                    .unwrap()
-                    .eq_ignore_ascii_case(&decancer::cure!(nickname).unwrap())
+                cure_nickname(u.nickname.as_deref().unwrap_or_default())
+                    .unwrap_or_default()
+                    .eq_ignore_ascii_case(&cured)
             });
 
         if another_user_has_same_nick || another_ruser_has_same_nick {
@@ -133,7 +147,7 @@ impl ServerStateInner {
 }
 
 impl ServerState {
-    pub fn new_registering_user(&self) -> (UserID, UserState, MailboxSink) {
+    pub fn new_registering_user(&self) -> (UserState, MailboxSink) {
         let mut sv = self.0.write();
 
         let (user, rx) = RegisteringUser::new();
@@ -142,7 +156,7 @@ impl ServerState {
 
         sv.registering_users.insert(user.user_id, user);
 
-        (user_id, state, rx)
+        (state, rx)
     }
 
     pub fn set_server_name(&self, server_name: &str) {
@@ -167,23 +181,6 @@ impl ServerState {
     }
 }
 
-impl ServerStateInner {
-    fn get_ruser(&self, user_id: UserID) -> &RegisteringUser {
-        #[allow(clippy::unwrap_used)]
-        self.registering_users.get(&user_id).unwrap()
-    }
-
-    fn get_mut_ruser(&mut self, user_id: UserID) -> &mut RegisteringUser {
-        #[allow(clippy::unwrap_used)]
-        self.registering_users.get_mut(&user_id).unwrap()
-    }
-
-    fn get_mut_user(&mut self, user_id: UserID) -> &mut RegisteredUser {
-        #[allow(clippy::unwrap_used)]
-        self.users.get_mut(&user_id).unwrap()
-    }
-}
-
 /// Functions for registering users
 impl ServerState {
     pub(crate) fn ruser_sends_invalid_message(
@@ -194,11 +191,15 @@ impl ServerState {
         let sv = self.0.read();
 
         let user_id = user_state.user_id;
-        let user = sv.get_ruser(user_id);
+        let Some(user) = sv.registering_users.get(&user_state.user_id) else {
+            return UserState::Disconnected;
+        };
+
         let client = user.maybe_nickname();
         if let Some(err) = ServerStateError::from_decoding_error_with_client(error, client) {
             sv.send_error(user_id, err);
         }
+
         UserState::Registering(user_state)
     }
 
@@ -211,7 +212,9 @@ impl ServerState {
             let mut sv = self.0.write();
 
             let user_id = user_state.user_id;
-            let user = sv.get_mut_ruser(user_id);
+            let Some(user) = sv.registering_users.get_mut(&user_id) else {
+                return UserState::Disconnected;
+            };
             user.password = Some(password.into());
         }
 
@@ -227,7 +230,9 @@ impl ServerState {
                 sv.send_error(user_id, err);
                 return UserState::Registering(user_state);
             }
-            let user = sv.get_mut_ruser(user_id);
+            let Some(user) = sv.registering_users.get_mut(&user_id) else {
+                return UserState::Disconnected;
+            };
             user.nickname = Some(nick.into());
         }
 
@@ -257,7 +262,9 @@ impl ServerState {
     pub(crate) fn ruser_pings(&self, user_state: RegisteringState, token: &[u8]) -> UserState {
         let sv = self.0.read();
 
-        let user = sv.get_ruser(user_state.user_id);
+        let Some(user) = sv.registering_users.get(&user_state.user_id) else {
+            return UserState::Disconnected;
+        };
         let message = server_to_client::Message::Pong { token };
         user.send(&message, &sv.message_context);
         UserState::Registering(user_state)
@@ -270,7 +277,9 @@ impl ServerState {
     ) -> UserState {
         let sv = self.0.read();
 
-        let user = sv.get_ruser(user_state.user_id);
+        let Some(user) = sv.registering_users.get(&user_state.user_id) else {
+            return UserState::Disconnected;
+        };
         let message = server_to_client::Message::Err(ServerStateError::UnknownCommand {
             client: user.maybe_nickname(),
             command: command.to_owned(),
@@ -285,7 +294,9 @@ impl ServerState {
     ) -> UserState {
         let sv = self.0.read();
 
-        let user = sv.get_ruser(user_state.user_id);
+        let Some(user) = sv.registering_users.get(&user_state.user_id) else {
+            return UserState::Disconnected;
+        };
         let message = server_to_client::Message::Err(ServerStateError::NotRegistered {
             client: user.maybe_nickname(),
         });
@@ -409,7 +420,9 @@ impl ServerStateInner {
         user_id: UserID,
         channel_name: &str,
     ) -> Result<(), ServerStateError> {
-        let user = &self.users[&user_id];
+        let Some(user) = self.users.get(&user_id) else {
+            return Ok(()); // internal error
+        };
         validate_channel_name(user, channel_name)?;
 
         let channel = self.channels.entry(channel_name.to_owned()).or_default();
@@ -429,13 +442,15 @@ impl ServerStateInner {
 
         // notify everyone, including the joiner
         let mut nicknames = vec![];
-        let joiner_spec = &self.users[&user_id].fullspec();
+        let joiner_spec = &user.fullspec();
         let message = server_to_client::Message::Join {
             channel: channel_name,
             user_fullspec: joiner_spec,
         };
         for (user_id, user_mode) in &channel.users {
-            let user: &RegisteredUser = &self.users[user_id];
+            let Some(user) = self.users.get(user_id) else {
+                return Ok(()); // internal error
+            };
             nicknames.push((&user.nickname, user_mode));
             user.send(&message, &self.message_context);
         }
@@ -474,7 +489,7 @@ impl ServerState {
 
         let user_id = user_state.user_id;
         for channel in channels {
-            if let Err(err) = sv.user_names_channel(user_id, &channel) {
+            if let Err(err) = sv.user_names_channel(user_id, channel) {
                 sv.send_error(user_id, err);
             }
         }
@@ -489,7 +504,9 @@ impl ServerStateInner {
         user_id: UserID,
         channel_name: &str,
     ) -> Result<(), ServerStateError> {
-        let user = &self.users[&user_id];
+        let Some(user) = self.users.get(&user_id) else {
+            return Ok(()); // internal error
+        };
 
         let Some(channel) = self.channels.get(channel_name) else {
             // if the channel is invalid or does not exist, returns RPL_ENDOFNAMES (366)
@@ -512,7 +529,9 @@ impl ServerStateInner {
 
         let mut nicknames = vec![];
         for (user_id, user_mode) in &channel.users {
-            let user: &RegisteredUser = &self.users[user_id];
+            let Some(user) = self.users.get(user_id) else {
+                return Ok(()); // internal error
+            };
             nicknames.push((&user.nickname, user_mode));
         }
 
@@ -556,7 +575,9 @@ impl ServerStateInner {
         channel_name: &str,
         reason: Option<&[u8]>,
     ) -> Result<(), ServerStateError> {
-        let user = &self.users[&user_id];
+        let Some(user) = self.users.get(&user_id) else {
+            return Ok(()); // internal error
+        };
         validate_channel_name(user, channel_name)?;
 
         let Some(channel) = self.channels.get_mut(channel_name) else {
@@ -579,7 +600,9 @@ impl ServerStateInner {
             reason,
         };
         for user_id in channel.users.keys() {
-            let user = &self.users[user_id];
+            let Some(user) = self.users.get(user_id) else {
+                return Ok(()); // internal error
+            };
             user.send(&message, &self.message_context);
         }
 
@@ -607,7 +630,9 @@ impl ServerState {
 
 impl ServerStateInner {
     fn user_disconnects_voluntarily(&mut self, user_id: UserID, reason: Option<&[u8]>) {
-        let user = &self.users[&user_id];
+        let Some(user) = self.users.get(&user_id) else {
+            return; // internal error
+        };
         let reason = reason.unwrap_or(b"Client Quit");
 
         let message = server_to_client::Message::Quit {
@@ -618,7 +643,9 @@ impl ServerStateInner {
             if channel.users.contains_key(&user_id) {
                 channel.users.remove(&user_id);
                 for user_id in channel.users.keys() {
-                    let user = &self.users[user_id];
+                    let Some(user) = self.users.get(user_id) else {
+                        return; // internal error
+                    };
                     user.send(&message, &self.message_context);
                 }
             }
@@ -641,16 +668,18 @@ impl ServerStateInner {
 }
 
 impl ServerState {
-    pub fn user_disconnects_suddently(&self, user_id: UserID) {
+    pub fn user_disconnects_suddently(&self, user_state: RegisteredState) -> UserState {
         let mut sv = self.0.write();
-        sv.user_disconnects_suddently(user_id)
+        sv.user_disconnects_suddently(user_state.user_id);
+        UserState::Disconnected
     }
 }
 
 impl ServerStateInner {
-    // TODO: hide
     fn user_disconnects_suddently(&mut self, user_id: UserID) {
-        let user = &self.users[&user_id];
+        let Some(user) = self.users.get(&user_id) else {
+            return; // internal error
+        };
         let reason = b"Disconnected suddently.";
 
         let message = server_to_client::Message::Quit {
@@ -661,7 +690,9 @@ impl ServerStateInner {
             if channel.users.contains_key(&user_id) {
                 channel.users.remove(&user_id);
                 for user_id in channel.users.keys() {
-                    let user = &self.users[user_id];
+                    let Some(user) = self.users.get(user_id) else {
+                        return; // internal error
+                    };
                     user.send(&message, &self.message_context);
                 }
             }
@@ -684,37 +715,30 @@ impl ServerState {
         let mut sv = self.0.write();
 
         let user_id = user_state.user_id;
-        if let Err(err) = sv.user_changes_nick(user_id, new_nick) {
+
+        if let Err(err) = sv.check_nickname(new_nick, Some(user_id)) {
             sv.send_error(user_id, err);
+            return UserState::Registered(user_state);
         }
 
-        UserState::Registered(user_state)
-    }
-}
-
-impl ServerStateInner {
-    fn user_changes_nick(
-        &mut self,
-        user_id: UserID,
-        new_nick: &str,
-    ) -> Result<(), ServerStateError> {
-        self.check_nickname(new_nick, Some(user_id))?;
-
-        let user = self.get_mut_user(user_id);
+        let Some(user) = sv.users.get_mut(&user_id) else {
+            return UserState::Disconnected;
+        };
 
         if user.nickname == new_nick {
-            return Ok(());
+            return UserState::Registered(user_state);
         }
 
         let message = server_to_client::Message::Nick {
             previous_user_fullspec: &user.fullspec(),
             nickname: new_nick,
         };
-        new_nick.clone_into(&mut user.nickname);
+
+        user.nickname = new_nick.to_string();
 
         let mut users = HashSet::new();
         users.insert(user_id);
-        for channel in self.channels.values_mut() {
+        for channel in sv.channels.values() {
             if channel.users.contains_key(&user_id) {
                 for &user_id in channel.users.keys() {
                     users.insert(user_id);
@@ -723,29 +747,15 @@ impl ServerStateInner {
         }
 
         for user_id in users {
-            let user = &self.users[&user_id];
-            user.send(&message, &self.message_context);
+            let Some(user) = sv.users.get(&user_id) else {
+                return UserState::Disconnected; // internal error
+            };
+            user.send(&message, &sv.message_context);
         }
 
-        Ok(())
+        UserState::Registered(user_state)
     }
 
-    fn lookup_target<'r>(&'r self, target: &str) -> Option<LookupResult<'r>> {
-        let maybe_channel = self
-            .channels
-            .iter()
-            .find(|(name, _)| name.eq_ignore_ascii_case(target))
-            .map(|(name, channel)| LookupResult::Channel(name, channel));
-        let maybe_user = self
-            .users
-            .values()
-            .find(|&u| u.nickname.eq_ignore_ascii_case(target))
-            .map(LookupResult::RegisteredUser);
-        maybe_channel.into_iter().chain(maybe_user).next()
-    }
-}
-
-impl ServerState {
     pub(crate) fn user_messages_target(
         &self,
         user_state: RegisteredState,
@@ -770,7 +780,9 @@ impl ServerStateInner {
         target: &str,
         content: &[u8],
     ) -> Result<(), ServerStateError> {
-        let user = &self.users[&user_id];
+        let Some(user) = self.users.get(&user_id) else {
+            return Ok(()); // internal error
+        };
 
         if content.is_empty() {
             return Err(ServerStateError::NoTextToSend {
@@ -837,7 +849,9 @@ impl ServerState {
 
 impl ServerStateInner {
     fn user_notices_target(&self, user_id: UserID, target: &str, content: &[u8]) {
-        let user = &self.users[&user_id];
+        let Some(user) = self.users.get(&user_id) else {
+            return; // internal error
+        };
 
         if content.is_empty() {
             // NOTICE shouldn't receive an error
@@ -897,7 +911,9 @@ impl ServerStateInner {
         user_id: UserID,
         channel_name: &str,
     ) -> Result<(), ServerStateError> {
-        let user = &self.users[&user_id];
+        let Some(user) = self.users.get(&user_id) else {
+            return Ok(()); // internal error
+        };
         validate_channel_name(user, channel_name)?;
 
         let Some(channel) = self.channels.get(channel_name) else {
@@ -945,7 +961,9 @@ impl ServerStateInner {
         modechar: &str,
         param: Option<&str>,
     ) -> Result<(), ServerStateError> {
-        let user = &self.users[&user_id];
+        let Some(user) = self.users.get(&user_id) else {
+            return Ok(()); // internal error
+        };
         validate_channel_name(user, channel_name)?;
 
         let Some(channel) = self.channels.get_mut(channel_name) else {
@@ -956,26 +974,6 @@ impl ServerStateInner {
         };
 
         channel.ensure_user_can_set_channel_mode(user, channel_name)?;
-
-        let lookup_user = |nickname: &str| -> Result<UserID, ServerStateError> {
-            let Some(target_user) = self.users.values().find(|&u| u.nickname == nickname) else {
-                return Err(ServerStateError::NoSuchNick {
-                    client: user.nickname.clone(),
-                    target: nickname.to_string(),
-                });
-            };
-
-            let user_id = target_user.user_id;
-            if !channel.users.contains_key(&user_id) {
-                return Err(ServerStateError::UserNotInChannel {
-                    client: user.nickname.clone(),
-                    nickname: nickname.to_string(),
-                    channel: channel_name.to_string(),
-                });
-            }
-
-            Ok(user_id)
-        };
 
         let mut new_channel_mode = channel.mode.clone();
         // TODO handle multiple modechars
@@ -988,51 +986,33 @@ impl ServerStateInner {
             "-m" => new_channel_mode = new_channel_mode.without_moderated(),
             "+n" => new_channel_mode = new_channel_mode.with_no_external(),
             "-n" => new_channel_mode = new_channel_mode.without_no_external(),
-            "+o" | "+v" => {
+            "+o" | "-o" | "+v" | "-v" => {
                 let Some(target) = param else {
                     return Err(ServerStateError::NeedMoreParams {
                         client: user.nickname.clone(),
                         command: "MODE".to_string(),
                     });
                 };
-                let target_user_id = lookup_user(target)?;
-                let cur_target_mode = channel.users.get_mut(&target_user_id).unwrap();
+
+                let Some(target_user) = self.users.values().find(|&u| u.nickname == target) else {
+                    return Err(ServerStateError::NoSuchNick {
+                        client: user.nickname.clone(),
+                        target: target.to_string(),
+                    });
+                };
+
+                let user_id = target_user.user_id;
+                let Some(cur_target_mode) = channel.users.get_mut(&user_id) else {
+                    return Err(ServerStateError::UserNotInChannel {
+                        client: user.nickname.clone(),
+                        nickname: target.to_string(),
+                        channel: channel_name.to_string(),
+                    });
+                };
+
                 let new_target_mode = match modechar {
                     "+o" => cur_target_mode.with_op(),
                     "+v" => cur_target_mode.with_voice(),
-                    _ => {
-                        // remove the + or -
-                        let letters = modechar.chars().skip(1).collect();
-                        return Err(ServerStateError::UnknownMode {
-                            client: user.nickname.clone(),
-                            modechar: letters,
-                        });
-                    }
-                };
-                if *cur_target_mode != new_target_mode {
-                    *cur_target_mode = new_target_mode;
-                    let message = server_to_client::Message::Mode {
-                        user_fullspec: &user.fullspec(),
-                        target: channel_name,
-                        modechar,
-                        param: Some(target),
-                    };
-                    for user_id in channel.users.keys() {
-                        let user = &self.users[user_id];
-                        user.send(&message, &self.message_context);
-                    }
-                }
-            }
-            "-o" | "-v" => {
-                let Some(target) = param else {
-                    return Err(ServerStateError::NeedMoreParams {
-                        client: user.nickname.clone(),
-                        command: "MODE".to_string(),
-                    });
-                };
-                let target_user_id = lookup_user(target)?;
-                let cur_target_mode = channel.users.get_mut(&target_user_id).unwrap();
-                let new_target_mode = match modechar {
                     "-o" => cur_target_mode.without_op(),
                     "-v" => cur_target_mode.without_voice(),
                     _ => {
@@ -1044,6 +1024,7 @@ impl ServerStateInner {
                         });
                     }
                 };
+
                 if *cur_target_mode != new_target_mode {
                     *cur_target_mode = new_target_mode;
                     let message = server_to_client::Message::Mode {
@@ -1053,7 +1034,9 @@ impl ServerStateInner {
                         param: Some(target),
                     };
                     for user_id in channel.users.keys() {
-                        let user = &self.users[user_id];
+                        let Some(user) = self.users.get(user_id) else {
+                            return Ok(()); // internal error
+                        };
                         user.send(&message, &self.message_context);
                     }
                 }
@@ -1078,7 +1061,9 @@ impl ServerStateInner {
                 param: None,
             };
             for user_id in channel.users.keys() {
-                let user = &self.users[user_id];
+                let Some(user) = self.users.get(user_id) else {
+                    return Ok(()); // internal error
+                };
                 user.send(&message, &self.message_context);
             }
         }
@@ -1112,7 +1097,9 @@ impl ServerStateInner {
         channel_name: &str,
         content: &Vec<u8>,
     ) -> Result<(), ServerStateError> {
-        let user = &self.users[&user_id];
+        let Some(user) = self.users.get(&user_id) else {
+            return Ok(()); // internal error
+        };
 
         let Some(channel) = self.channels.get_mut(channel_name) else {
             return Err(ServerStateError::NoSuchChannel {
@@ -1167,7 +1154,9 @@ impl ServerStateInner {
         user_id: UserID,
         channel_name: &str,
     ) -> Result<(), ServerStateError> {
-        let user = &self.users[&user_id];
+        let Some(user) = self.users.get(&user_id) else {
+            return Ok(()); // internal error
+        };
 
         let Some(channel) = self.channels.get(channel_name) else {
             return Err(ServerStateError::NoSuchChannel {
@@ -1238,7 +1227,9 @@ impl ServerState {
 
 impl ServerStateInner {
     fn user_pings(&self, user_id: UserID, token: &[u8]) {
-        let user = &self.users[&user_id];
+        let Some(user) = self.users.get(&user_id) else {
+            return; // internal error
+        };
         let message = server_to_client::Message::Pong { token };
         user.send(&message, &self.message_context);
     }
@@ -1258,7 +1249,9 @@ impl ServerState {
 
 impl ServerStateInner {
     fn user_sends_unknown_command(&self, user_id: UserID, command: &str) {
-        let user = &self.users[&user_id];
+        let Some(user) = self.users.get(&user_id) else {
+            return; // internal error
+        };
         let message = server_to_client::Message::Err(ServerStateError::UnknownCommand {
             client: user.nickname.clone(),
             command: command.to_owned(),
@@ -1281,7 +1274,9 @@ impl ServerState {
 
 impl ServerStateInner {
     fn user_sends_invalid_message(&self, user_id: UserID, error: MessageDecodingError) {
-        let user = &self.users[&user_id];
+        let Some(user) = self.users.get(&user_id) else {
+            return; // internal error
+        };
         let client = user.nickname.clone();
         if let Some(err) = ServerStateError::from_decoding_error_with_client(error, client) {
             self.send_error(user_id, err);
@@ -1299,7 +1294,9 @@ impl ServerState {
 
 impl ServerStateInner {
     fn user_wants_motd(&self, user_id: UserID) {
-        let user = &self.users[&user_id];
+        let Some(user) = self.users.get(&user_id) else {
+            return; // internal error
+        };
         let message = server_to_client::Message::MOTD {
             client: &user.nickname,
             motd: self.motd_provider.motd(),
@@ -1389,7 +1386,9 @@ impl ServerStateInner {
             })
             .collect::<Vec<_>>();
 
-        let user = &self.users[&user_id];
+        let Some(user) = self.users.get(&user_id) else {
+            return; // internal error
+        };
         let message = server_to_client::Message::List {
             client: &user.nickname,
             infos: &channel_info_list,
@@ -1412,7 +1411,10 @@ impl ServerState {
 
 impl ServerStateInner {
     fn user_indicates_away(&mut self, user_id: UserID, away_message: Option<&[u8]>) {
-        let user = self.users.get_mut(&user_id).unwrap();
+        let Some(user) = self.users.get_mut(&user_id) else {
+            return;
+        };
+
         user.away_message = away_message.map(|m| m.into());
 
         let message = if user.is_away() {
@@ -1442,7 +1444,9 @@ impl ServerState {
 
 impl ServerStateInner {
     fn user_asks_userhosts(&self, user_id: UserID, nicknames: &[String]) {
-        let user = &self.users[&user_id];
+        let Some(user) = self.users.get(&user_id) else {
+            return; // internal error
+        };
         let mut replies = vec![];
         for nick in nicknames {
             if let Some(user) = self.users.values().find(|&u| &u.nickname == nick) {
@@ -1473,7 +1477,9 @@ impl ServerState {
 
 impl ServerStateInner {
     fn user_asks_whois(&self, user_id: UserID, nickname: &str) {
-        let user = &self.users[&user_id];
+        let Some(user) = self.users.get(&user_id) else {
+            return; // internal error
+        };
         let Some(target_user) = self.users.values().find(|&u| u.nickname == nickname) else {
             let message = server_to_client::Message::Err(ServerStateError::NoSuchNick {
                 client: user.nickname.to_string(),
@@ -1510,7 +1516,9 @@ impl ServerState {
 
 impl ServerStateInner {
     fn user_asks_who(&self, user_id: UserID, mask: &str) {
-        let user = &self.users[&user_id];
+        let Some(user) = self.users.get(&user_id) else {
+            return; // internal error
+        };
 
         // mask patterns are not handled
         let result = self.lookup_target(mask);
@@ -1519,7 +1527,9 @@ impl ServerStateInner {
         match result {
             Some(LookupResult::Channel(channel_name, channel)) => {
                 for (user_id, user_mode) in &channel.users {
-                    let user = &self.users[user_id];
+                    let Some(user) = self.users.get(user_id) else {
+                        return; // internal error
+                    };
                     let reply = WhoReply {
                         channel: Some(channel_name),
                         channel_user_mode: Some(user_mode),
@@ -1584,7 +1594,9 @@ impl ServerState {
 
 impl ServerStateInner {
     fn user_asks_lusers(&self, user_id: UserID) {
-        let user = &self.users[&user_id];
+        let Some(user) = self.users.get(&user_id) else {
+            return; // internal error
+        };
 
         let message = server_to_client::Message::LUsers {
             client: &user.nickname,

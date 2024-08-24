@@ -19,7 +19,7 @@ impl Session {
     pub(crate) async fn run(mut self, server_state: ServerState) -> anyhow::Result<()> {
         let mut stream_parser = StreamParser::default();
 
-        let (user_id, mut state, mut rx) = server_state.new_registering_user();
+        let (mut state, mut rx) = server_state.new_registering_user();
 
         while !state.client_disconnected_voluntarily() {
             tokio::select! {
@@ -62,9 +62,9 @@ impl Session {
         } else if let UserState::Registering(state) = state {
             // the connection was closed without notification
             server_state.ruser_disconnects_suddently(state);
-        } else if let UserState::Registered(_state) = state {
+        } else if let UserState::Registered(state) = state {
             // the connection was closed without notification
-            server_state.user_disconnects_suddently(user_id);
+            server_state.user_disconnects_suddently(state);
         }
 
         Ok(())
