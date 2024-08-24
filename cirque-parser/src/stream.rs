@@ -67,54 +67,47 @@ unsafe impl bytes::BufMut for StreamParser {
     }
 }
 
-fn is_end_of_message(c: &u8) -> bool {
-    *c == b'\r' || *c == b'\n'
+#[inline]
+fn is_end_of_message(c: u8) -> bool {
+    c == b'\r' || c == b'\n'
 }
 
 fn consume_line(buf: &mut SliceRingBuffer<u8>) -> Option<&[u8]> {
-    if buf.is_empty() {
-        return None;
+    assert!(buf.capacity() > 512);
+
+    #[allow(clippy::indexing_slicing)]
+    while !buf.is_empty() && is_end_of_message(buf[0]) {
+        // move the buffer forward to skip the EOL character
+        // SAFETY: the buffer is not empty and we eat only one character
+        // (and we don't care about dropping u8)
+        unsafe {
+            buf.move_head_unchecked(1);
+        }
     }
 
-    // eat the EOL characters
-    let mut cur = 0;
-    while cur < buf.len() as isize - 1 && is_end_of_message(&buf[cur as usize]) {
-        cur += 1;
-    }
-
-    // move the buffer forward to skip the EOL characters
-    // SAFETY: cur is less than the size of the buffer
-    // and we don't care about dropping u8
-    unsafe {
-        buf.move_head(cur);
-    }
-
-    // find the next EOL characters
-    let mut cur = 0;
-    while cur < buf.len() as isize - 1 && !is_end_of_message(&buf[cur as usize]) {
-        cur += 1;
-    }
-
-    // if no EOL found, then the message is not finished
-    if cur == 0 || !is_end_of_message(&buf[cur as usize]) {
-        return None;
-    }
-
-    // keep track of the start of the line
+    // keep track of the start of the line for later
     let line_start_ptr = buf.as_ptr();
 
-    // move the buffer forward to skip the line (will arrive at the EOL character)
-    // SAFETY: cur is less than the size of the buffer
-    // and we don't care about dropping u8
+    // compute the length of the line (until the next EOL)
+    // if there is no EOL, return None
+    let line_length = buf
+        .iter()
+        .enumerate()
+        .filter_map(|(i, &c)| is_end_of_message(c).then_some(i))
+        .next()?;
+
+    // move the buffer forward to skip the line
+    // SAFETY: 'line_length' is within the buffer's bound
+    // (and we don't care about dropping u8)
     unsafe {
-        buf.move_head(cur);
+        buf.move_head_unchecked(line_length as isize);
     }
 
     // restrict the message length to 512 characters
     // this is not strictly necessary but might prevent some abuse
     // the head of the buffer was still moved by the correct amont (till the end of line),
     // so this truncates the line but keep the next message clean
-    let cur = cur.min(512);
+    let line_length = line_length.min(512);
 
     // retrieve the line from the pointer
     // SAFETY:
@@ -122,7 +115,7 @@ fn consume_line(buf: &mut SliceRingBuffer<u8>) -> Option<&[u8]> {
     // - the data is initialized since it is part of the buffer
     // - the data won't be mutated as it is used only by MessageIterator which hold the mutable
     //   reference to StreamParser, hence the owned buffer can't be mutated
-    let line = unsafe { std::slice::from_raw_parts(line_start_ptr, cur as usize) };
+    let line = unsafe { std::slice::from_raw_parts(line_start_ptr, line_length) };
     Some(line)
 }
 
@@ -167,9 +160,33 @@ mod tests {
     }
 
     #[test]
+    fn test_zero() {
+        let mut sp = StreamParser::default();
+        sp.feed_from_slice(b"C");
+        let iter = sp.consume_iter();
+        assert_eq!(iter.count(), 0);
+    }
+
+    #[test]
+    fn test_zero_2() {
+        let mut sp = StreamParser::default();
+        sp.feed_from_slice(b"\n");
+        let iter = sp.consume_iter();
+        assert_eq!(iter.count(), 0);
+    }
+
+    #[test]
     fn test_one() {
         let mut sp = StreamParser::default();
         sp.feed_from_slice(b"CMD\r\n");
+        let iter = sp.consume_iter();
+        assert_eq!(iter.count(), 1);
+    }
+
+    #[test]
+    fn test_short_one() {
+        let mut sp = StreamParser::default();
+        sp.feed_from_slice(b"C\n");
         let iter = sp.consume_iter();
         assert_eq!(iter.count(), 1);
     }
