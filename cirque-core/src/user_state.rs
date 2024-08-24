@@ -21,8 +21,7 @@ impl RegisteringState {
         let message = match client_to_server::Message::try_from(&message) {
             Ok(message) => message,
             Err(error) => {
-                server_state.ruser_sends_invalid_message(self.user_id, error);
-                return UserState::Registering(self);
+                return server_state.ruser_sends_invalid_message(self, error);
             }
         };
 
@@ -71,113 +70,68 @@ impl RegisteredState {
         let message = match client_to_server::Message::try_from(&message) {
             Ok(message) => message,
             Err(error) => {
-                server_state.user_sends_invalid_message(self.user_id, error);
-                return UserState::Registered(self);
+                return server_state.user_sends_invalid_message(self, error);
             }
         };
 
         match message {
             client_to_server::Message::Join(channels) => {
-                for channel in channels {
-                    if let Err(err) = server_state.user_joins_channel(self.user_id, &channel) {
-                        server_state.send_error(self.user_id, err);
-                    }
-                }
+                server_state.user_joins_channels(self, &channels)
             }
             client_to_server::Message::Names(channels) => {
-                for channel in channels {
-                    if let Err(err) = server_state.user_names_channel(self.user_id, &channel) {
-                        server_state.send_error(self.user_id, err);
-                    }
-                }
+                server_state.user_names_channels(self, &channels)
             }
-            client_to_server::Message::Nick(nick) => {
-                if let Err(err) = server_state.user_changes_nick(self.user_id, &nick) {
-                    server_state.send_error(self.user_id, err);
-                }
-            }
+            client_to_server::Message::Nick(nick) => server_state.user_changes_nick(self, &nick),
             client_to_server::Message::Part(channels, reason) => {
-                for channel in channels {
-                    if let Err(err) =
-                        server_state.user_leaves_channel(self.user_id, &channel, reason.as_deref())
-                    {
-                        server_state.send_error(self.user_id, err);
-                    }
-                }
+                server_state.user_leaves_channels(self, &channels, reason.as_deref())
             }
             client_to_server::Message::AskModeChannel(channel) => {
-                if let Err(err) = server_state.user_asks_channel_mode(self.user_id, &channel) {
-                    server_state.send_error(self.user_id, err);
-                }
+                server_state.user_asks_channel_mode(self, &channel)
             }
             client_to_server::Message::ChangeModeChannel(channel, modechar, param) => {
-                if let Err(err) = server_state.user_changes_channel_mode(
-                    self.user_id,
-                    &channel,
-                    &modechar,
-                    param.as_deref(),
-                ) {
-                    server_state.send_error(self.user_id, err);
-                }
+                server_state.user_changes_channel_mode(self, &channel, &modechar, param.as_deref())
             }
-            client_to_server::Message::Ping(token) => {
-                server_state.user_pings(self.user_id, &token);
-            }
-            client_to_server::Message::Pong(_token) => {}
+            client_to_server::Message::Ping(token) => server_state.user_pings(self, &token),
+            client_to_server::Message::Pong(_token) => UserState::Registered(self),
             client_to_server::Message::Quit(reason) => {
-                server_state.user_disconnects_voluntarily(self.user_id, reason.as_deref());
-                return UserState::Disconnected {};
+                server_state.user_disconnects_voluntarily(self, reason.as_deref())
             }
             client_to_server::Message::PrivMsg(target, content) => {
-                if let Err(err) = server_state.user_messages_target(self.user_id, &target, &content)
-                {
-                    server_state.send_error(self.user_id, err);
-                }
+                server_state.user_messages_target(self, &target, &content)
             }
             client_to_server::Message::Notice(target, content) => {
-                server_state.user_notices_target(self.user_id, &target, &content);
+                server_state.user_notices_target(self, &target, &content)
             }
             client_to_server::Message::SetTopic(target, content) => {
-                if let Err(err) = server_state.user_sets_topic(self.user_id, &target, &content) {
-                    server_state.send_error(self.user_id, err);
-                }
+                server_state.user_sets_topic(self, &target, &content)
             }
             client_to_server::Message::GetTopic(target) => {
-                if let Err(err) = server_state.user_wants_topic(self.user_id, &target) {
-                    server_state.send_error(self.user_id, err);
-                }
+                server_state.user_wants_topic(self, &target)
             }
-            client_to_server::Message::MOTD() => {
-                server_state.user_wants_motd(self.user_id);
-            }
+            client_to_server::Message::MOTD() => server_state.user_wants_motd(self),
             client_to_server::Message::Away(away_message) => {
-                server_state.user_indicates_away(self.user_id, away_message.as_deref());
+                server_state.user_indicates_away(self, away_message.as_deref())
             }
             client_to_server::Message::Userhost(nicknames) => {
-                server_state.user_asks_userhosts(self.user_id, &nicknames);
+                server_state.user_asks_userhosts(self, &nicknames)
             }
             client_to_server::Message::Whois(nickname) => {
-                server_state.user_asks_whois(self.user_id, &nickname);
+                server_state.user_asks_whois(self, &nickname)
             }
-            client_to_server::Message::Who(mask) => {
-                server_state.user_asks_who(self.user_id, &mask);
-            }
-            client_to_server::Message::Lusers() => {
-                server_state.user_asks_lusers(self.user_id);
-            }
+            client_to_server::Message::Who(mask) => server_state.user_asks_who(self, &mask),
+            client_to_server::Message::Lusers() => server_state.user_asks_lusers(self),
             client_to_server::Message::Unknown(command) => {
-                server_state.user_sends_unknown_command(self.user_id, &command);
+                server_state.user_sends_unknown_command(self, &command)
             }
             client_to_server::Message::List(list_channels, list_option) => {
-                server_state.user_sends_list_info(self.user_id, list_channels, list_option);
+                server_state.user_sends_list_info(self, list_channels, list_option)
             }
             _ => {
                 // TODO: log
                 //println!("illegal command from connected client");
+                UserState::Registered(self)
             }
-        };
-
-        UserState::Registered(self)
+        }
     }
 }
 

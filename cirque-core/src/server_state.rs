@@ -186,14 +186,20 @@ impl ServerStateInner {
 
 /// Functions for registering users
 impl ServerState {
-    pub(crate) fn ruser_sends_invalid_message(&self, user_id: UserID, error: MessageDecodingError) {
+    pub(crate) fn ruser_sends_invalid_message(
+        &self,
+        user_state: RegisteringState,
+        error: MessageDecodingError,
+    ) -> UserState {
         let sv = self.0.read();
 
+        let user_id = user_state.user_id;
         let user = sv.get_ruser(user_id);
         let client = user.maybe_nickname();
         if let Some(err) = ServerStateError::from_decoding_error_with_client(error, client) {
             sv.send_error(user_id, err);
         }
+        UserState::Registering(user_state)
     }
 
     pub(crate) fn ruser_uses_password(
@@ -356,11 +362,6 @@ impl ServerState {
         user.send(&message, &sv.message_context);
         UserState::Disconnected
     }
-
-    pub(crate) fn send_error(&self, user_id: UserID, error: ServerStateError) {
-        let sv = self.0.read();
-        sv.send_error(user_id, error);
-    }
 }
 
 /// Functions for registered users
@@ -384,13 +385,21 @@ impl ServerStateInner {
 }
 
 impl ServerState {
-    pub(crate) fn user_joins_channel(
+    pub(crate) fn user_joins_channels(
         &self,
-        user_id: UserID,
-        channel_name: &str,
-    ) -> Result<(), ServerStateError> {
+        user_state: RegisteredState,
+        channels: &[String],
+    ) -> UserState {
         let mut sv = self.0.write();
-        sv.user_joins_channel(user_id, channel_name)
+
+        let user_id = user_state.user_id;
+        for channel in channels {
+            if let Err(err) = sv.user_joins_channel(user_id, channel) {
+                sv.send_error(user_id, err);
+            }
+        }
+
+        UserState::Registered(user_state)
     }
 }
 
@@ -456,13 +465,21 @@ impl ServerStateInner {
 }
 
 impl ServerState {
-    pub(crate) fn user_names_channel(
+    pub(crate) fn user_names_channels(
         &self,
-        user_id: UserID,
-        channel_name: &str,
-    ) -> Result<(), ServerStateError> {
+        user_state: RegisteredState,
+        channels: &[String],
+    ) -> UserState {
         let sv = self.0.read();
-        sv.user_names_channel(user_id, channel_name)
+
+        let user_id = user_state.user_id;
+        for channel in channels {
+            if let Err(err) = sv.user_names_channel(user_id, &channel) {
+                sv.send_error(user_id, err);
+            }
+        }
+
+        UserState::Registered(user_state)
     }
 }
 
@@ -513,14 +530,22 @@ impl ServerStateInner {
 }
 
 impl ServerState {
-    pub(crate) fn user_leaves_channel(
+    pub(crate) fn user_leaves_channels(
         &self,
-        user_id: UserID,
-        channel_name: &str,
+        user_state: RegisteredState,
+        channels: &[String],
         reason: Option<&[u8]>,
-    ) -> Result<(), ServerStateError> {
+    ) -> UserState {
         let mut sv = self.0.write();
-        sv.user_leaves_channel(user_id, channel_name, reason)
+
+        let user_id = user_state.user_id;
+        for channel in channels {
+            if let Err(err) = sv.user_leaves_channel(user_id, channel, reason) {
+                sv.send_error(user_id, err)
+            }
+        }
+
+        UserState::Registered(user_state)
     }
 }
 
@@ -569,9 +594,14 @@ impl ServerStateInner {
 }
 
 impl ServerState {
-    pub(crate) fn user_disconnects_voluntarily(&self, user_id: UserID, reason: Option<&[u8]>) {
+    pub(crate) fn user_disconnects_voluntarily(
+        &self,
+        user_state: RegisteredState,
+        reason: Option<&[u8]>,
+    ) -> UserState {
         let mut sv = self.0.write();
-        sv.user_disconnects_voluntarily(user_id, reason)
+        sv.user_disconnects_voluntarily(user_state.user_id, reason);
+        UserState::Disconnected
     }
 }
 
@@ -648,11 +678,17 @@ impl ServerStateInner {
 impl ServerState {
     pub(crate) fn user_changes_nick(
         &self,
-        user_id: UserID,
+        user_state: RegisteredState,
         new_nick: &str,
-    ) -> Result<(), ServerStateError> {
+    ) -> UserState {
         let mut sv = self.0.write();
-        sv.user_changes_nick(user_id, new_nick)
+
+        let user_id = user_state.user_id;
+        if let Err(err) = sv.user_changes_nick(user_id, new_nick) {
+            sv.send_error(user_id, err);
+        }
+
+        UserState::Registered(user_state)
     }
 }
 
@@ -712,12 +748,18 @@ impl ServerStateInner {
 impl ServerState {
     pub(crate) fn user_messages_target(
         &self,
-        user_id: UserID,
+        user_state: RegisteredState,
         target: &str,
         content: &[u8],
-    ) -> Result<(), ServerStateError> {
+    ) -> UserState {
         let sv = self.0.read();
-        sv.user_messages_target(user_id, target, content)
+
+        let user_id = user_state.user_id;
+        if let Err(err) = sv.user_messages_target(user_id, target, content) {
+            sv.send_error(user_id, err);
+        }
+
+        UserState::Registered(user_state)
     }
 }
 
@@ -778,9 +820,18 @@ impl ServerStateInner {
 }
 
 impl ServerState {
-    pub(crate) fn user_notices_target(&self, user_id: UserID, target: &str, content: &[u8]) {
+    pub(crate) fn user_notices_target(
+        &self,
+        user_state: RegisteredState,
+        target: &str,
+        content: &[u8],
+    ) -> UserState {
         let sv = self.0.read();
-        sv.user_notices_target(user_id, target, content)
+
+        let user_id = user_state.user_id;
+        sv.user_notices_target(user_id, target, content);
+
+        UserState::Registered(user_state)
     }
 }
 
@@ -828,11 +879,15 @@ impl ServerStateInner {
 impl ServerState {
     pub(crate) fn user_asks_channel_mode(
         &self,
-        user_id: UserID,
+        user_state: RegisteredState,
         channel_name: &str,
-    ) -> Result<(), ServerStateError> {
+    ) -> UserState {
         let sv = self.0.read();
-        sv.user_asks_channel_mode(user_id, channel_name)
+        let user_id = user_state.user_id;
+        if let Err(err) = sv.user_asks_channel_mode(user_id, channel_name) {
+            sv.send_error(user_id, err);
+        }
+        UserState::Registered(user_state)
     }
 }
 
@@ -866,13 +921,19 @@ impl ServerStateInner {
 impl ServerState {
     pub(crate) fn user_changes_channel_mode(
         &self,
-        user_id: UserID,
+        user_state: RegisteredState,
         channel_name: &str,
         modechar: &str,
         param: Option<&str>,
-    ) -> Result<(), ServerStateError> {
+    ) -> UserState {
         let mut sv = self.0.write();
-        sv.user_changes_channel_mode(user_id, channel_name, modechar, param)
+
+        let user_id = user_state.user_id;
+        if let Err(err) = sv.user_changes_channel_mode(user_id, channel_name, modechar, param) {
+            sv.send_error(user_id, err);
+        }
+
+        UserState::Registered(user_state)
     }
 }
 
@@ -1029,12 +1090,18 @@ impl ServerStateInner {
 impl ServerState {
     pub(crate) fn user_sets_topic(
         &self,
-        user_id: UserID,
+        user_state: RegisteredState,
         channel_name: &str,
         content: &Vec<u8>,
-    ) -> Result<(), ServerStateError> {
+    ) -> UserState {
         let mut sv = self.0.write();
-        sv.user_sets_topic(user_id, channel_name, content)
+
+        let user_id = user_state.user_id;
+        if let Err(err) = sv.user_sets_topic(user_id, channel_name, content) {
+            sv.send_error(user_id, err);
+        }
+
+        UserState::Registered(user_state)
     }
 }
 
@@ -1080,11 +1147,17 @@ impl ServerStateInner {
 impl ServerState {
     pub(crate) fn user_wants_topic(
         &self,
-        user_id: UserID,
+        user_state: RegisteredState,
         channel_name: &str,
-    ) -> Result<(), ServerStateError> {
+    ) -> UserState {
         let sv = self.0.read();
-        sv.user_wants_topic(user_id, channel_name)
+
+        let user_id = user_state.user_id;
+        if let Err(err) = sv.user_wants_topic(user_id, channel_name) {
+            sv.send_error(user_id, err);
+        }
+
+        UserState::Registered(user_state)
     }
 }
 
@@ -1156,9 +1229,10 @@ impl ServerStateInner {
 }
 
 impl ServerState {
-    pub(crate) fn user_pings(&self, user_id: UserID, token: &[u8]) {
+    pub(crate) fn user_pings(&self, user_state: RegisteredState, token: &[u8]) -> UserState {
         let sv = self.0.read();
-        sv.user_pings(user_id, token)
+        sv.user_pings(user_state.user_id, token);
+        UserState::Registered(user_state)
     }
 }
 
@@ -1171,9 +1245,14 @@ impl ServerStateInner {
 }
 
 impl ServerState {
-    pub(crate) fn user_sends_unknown_command(&self, user_id: UserID, command: &str) {
+    pub(crate) fn user_sends_unknown_command(
+        &self,
+        user_state: RegisteredState,
+        command: &str,
+    ) -> UserState {
         let sv = self.0.read();
-        sv.user_sends_unknown_command(user_id, command)
+        sv.user_sends_unknown_command(user_state.user_id, command);
+        UserState::Registered(user_state)
     }
 }
 
@@ -1189,9 +1268,14 @@ impl ServerStateInner {
 }
 
 impl ServerState {
-    pub(crate) fn user_sends_invalid_message(&self, user_id: UserID, error: MessageDecodingError) {
+    pub(crate) fn user_sends_invalid_message(
+        &self,
+        user_state: RegisteredState,
+        error: MessageDecodingError,
+    ) -> UserState {
         let sv = self.0.read();
-        sv.user_sends_invalid_message(user_id, error)
+        sv.user_sends_invalid_message(user_state.user_id, error);
+        UserState::Registered(user_state)
     }
 }
 
@@ -1206,9 +1290,10 @@ impl ServerStateInner {
 }
 
 impl ServerState {
-    pub(crate) fn user_wants_motd(&self, user_id: UserID) {
+    pub(crate) fn user_wants_motd(&self, user_state: RegisteredState) -> UserState {
         let sv = self.0.read();
-        sv.user_wants_motd(user_id)
+        sv.user_wants_motd(user_state.user_id);
+        UserState::Registered(user_state)
     }
 }
 
@@ -1249,12 +1334,13 @@ impl ServerStateInner {
 impl ServerState {
     pub(crate) fn user_sends_list_info(
         &self,
-        user_id: UserID,
+        user_state: RegisteredState,
         list_channels: Option<Vec<String>>,
         list_options: Option<Vec<ListOption>>,
-    ) {
+    ) -> UserState {
         let sv = self.0.read();
-        sv.user_sends_list_info(user_id, list_channels, list_options)
+        sv.user_sends_list_info(user_state.user_id, list_channels, list_options);
+        UserState::Registered(user_state)
     }
 }
 
@@ -1313,9 +1399,14 @@ impl ServerStateInner {
 }
 
 impl ServerState {
-    pub(crate) fn user_indicates_away(&self, user_id: UserID, away_message: Option<&[u8]>) {
+    pub(crate) fn user_indicates_away(
+        &self,
+        user_state: RegisteredState,
+        away_message: Option<&[u8]>,
+    ) -> UserState {
         let mut sv = self.0.write();
-        sv.user_indicates_away(user_id, away_message)
+        sv.user_indicates_away(user_state.user_id, away_message);
+        UserState::Registered(user_state)
     }
 }
 
@@ -1338,9 +1429,14 @@ impl ServerStateInner {
 }
 
 impl ServerState {
-    pub(crate) fn user_asks_userhosts(&self, user_id: UserID, nicknames: &[String]) {
+    pub(crate) fn user_asks_userhosts(
+        &self,
+        user_state: RegisteredState,
+        nicknames: &[String],
+    ) -> UserState {
         let sv = self.0.read();
-        sv.user_asks_userhosts(user_id, nicknames)
+        sv.user_asks_userhosts(user_state.user_id, nicknames);
+        UserState::Registered(user_state)
     }
 }
 
@@ -1368,9 +1464,10 @@ impl ServerStateInner {
 }
 
 impl ServerState {
-    pub(crate) fn user_asks_whois(&self, user_id: UserID, nickname: &str) {
+    pub(crate) fn user_asks_whois(&self, user_state: RegisteredState, nickname: &str) -> UserState {
         let sv = self.0.read();
-        sv.user_asks_whois(user_id, nickname)
+        sv.user_asks_whois(user_state.user_id, nickname);
+        UserState::Registered(user_state)
     }
 }
 
@@ -1404,9 +1501,10 @@ impl ServerStateInner {
 }
 
 impl ServerState {
-    pub(crate) fn user_asks_who(&self, user_id: UserID, mask: &str) {
+    pub(crate) fn user_asks_who(&self, user_state: RegisteredState, mask: &str) -> UserState {
         let sv = self.0.read();
-        sv.user_asks_who(user_id, mask)
+        sv.user_asks_who(user_state.user_id, mask);
+        UserState::Registered(user_state)
     }
 }
 
@@ -1477,9 +1575,10 @@ impl ServerStateInner {
 }
 
 impl ServerState {
-    pub(crate) fn user_asks_lusers(&self, user_id: UserID) {
+    pub(crate) fn user_asks_lusers(&self, user_state: RegisteredState) -> UserState {
         let sv = self.0.read();
-        sv.user_asks_lusers(user_id)
+        sv.user_asks_lusers(user_state.user_id);
+        UserState::Registered(user_state)
     }
 }
 
