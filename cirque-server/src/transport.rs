@@ -51,6 +51,7 @@ impl AsyncRead for AnyStream {
         let start = buf.filled().len();
         let result = pinned.as_mut().poll_read(cx, buf);
         if self.debug {
+            #[allow(clippy::indexing_slicing)]
             std::io::stdout().write_all(&buf.filled()[start..])?;
         }
         result

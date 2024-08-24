@@ -120,6 +120,8 @@ pub fn parse_message(buf: &[u8]) -> IResult<&[u8], Message<'_>> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::indexing_slicing)]
+
     mod command {
         use super::super::*;
         use nom::combinator::all_consuming;

@@ -39,6 +39,7 @@ impl Config {
     }
 
     fn load_from_yaml(yaml: Vec<Yaml>) -> Result<Self, anyhow::Error> {
+        #![allow(clippy::indexing_slicing)]
         let docs = yaml;
         let doc = docs
             .first()
@@ -70,6 +71,7 @@ impl Config {
 #[cfg(test)]
 mod tests {
     #![allow(clippy::panic_in_result_fn)]
+    #![allow(clippy::indexing_slicing)]
 
     use std::fs;
     use std::{path::PathBuf, str::FromStr};

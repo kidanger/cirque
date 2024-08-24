@@ -1,4 +1,3 @@
-//#![deny(clippy::indexing_slicing)]
 use crate::types::ChannelID;
 
 #[derive(Debug, Default, PartialEq)]
@@ -90,12 +89,16 @@ impl TryFrom<&cirque_parser::Message<'_>> for Message {
             }
             b"USER" => {
                 let user = str(opt(message.first_parameter_as_vec())?)?;
-                if user.is_empty() || params.len() < 4 || params[3].is_empty() {
+                if user.is_empty() {
                     return Err(MessageDecodingError::NotEnoughParameters {
                         command: str(message.command().to_vec())?,
                     });
                 }
-                let realname = params[3].into();
+                let Some(realname) = params.get(3).map(|p| p.to_vec()) else {
+                    return Err(MessageDecodingError::NotEnoughParameters {
+                        command: str(message.command().to_vec())?,
+                    });
+                };
                 Message::User(user, realname)
             }
             b"PASS" => {
@@ -325,15 +328,15 @@ impl TryFrom<&cirque_parser::Message<'_>> for Message {
                     });
                 }
                 let mut nicknames = vec![];
-                for i in 0..params.len().min(5) {
-                    let nick = str(params[i].to_vec())?;
+                for p in params.iter().take(5) {
+                    let nick = str(p.to_vec())?;
                     nicknames.push(nick);
                 }
                 Message::Userhost(nicknames)
             }
             b"WHOIS" => {
-                let nickname = if params.len() == 2 {
-                    str(params[1].into())?
+                let nickname = if let Some(p) = params.get(1) {
+                    str(p.to_vec())?
                 } else {
                     str(opt(message.first_parameter_as_vec())?)?
                 };
