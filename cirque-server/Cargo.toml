@@ -12,6 +12,7 @@ rustls-pemfile = "2.1.2"
 
 cirque-parser = { path = "../cirque-parser" }
 cirque-core = { path = "../cirque-core" }
+log = "0.4.22"
 
 [lints]
 workspace = true

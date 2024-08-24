@@ -7,17 +7,21 @@ use crate::AnyListener;
 fn handle_client(server_state: ServerState, stream: anyhow::Result<AnyStream>) {
     let fut = async move {
         // wait until we are in the async task to throw the error
-        let stream = stream?;
-        let stream = stream.with_debug();
+        let mut stream = stream?;
+
+        // enable the following to ease debugging:
+        if false {
+            stream = stream.with_debug();
+        }
+
         Session::init(stream).run(server_state).await;
-        // TODO: log end of session
+        log::info!("end of session a client");
         anyhow::Ok(())
     };
 
     tokio::spawn(async move {
-        if let Err(_err) = fut.await {
-            // TODO: log
-            //eprintln!("{:?}", err);
+        if let Err(err) = fut.await {
+            log::error!("error when handling_client: {err}");
         }
     });
 }

@@ -132,6 +132,19 @@ impl TLSListener {
         let listener = TcpListener::bind(format!("[::]:{}", 6697)).await?;
         Ok(Self { listener, acceptor })
     }
+
+    pub fn update_keys(
+        &mut self,
+        certs: Vec<CertificateDer<'static>>,
+        private_key: PrivateKeyDer<'static>,
+    ) -> anyhow::Result<()> {
+        let config = rustls::ServerConfig::builder()
+            .with_no_client_auth()
+            .with_single_cert(certs, private_key)?;
+
+        self.acceptor = TlsAcceptor::from(Arc::new(config));
+        Ok(())
+    }
 }
 
 impl Listener for TLSListener {

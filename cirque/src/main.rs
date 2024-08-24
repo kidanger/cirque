@@ -26,9 +26,7 @@ impl cirque_core::MOTDProvider for FixedMOTDProvider {
 fn read_config(
     path: &Path,
 ) -> anyhow::Result<(Config, Vec<CertificateDer<'static>>, PrivateKeyDer<'static>)> {
-    let Ok(config) = config::Config::load_from_path(path) else {
-        anyhow::bail!("cannot load config");
-    };
+    let config = config::Config::load_from_path(path)?;
 
     let certs = if let Some(path) = &config.cert_file_path {
         let mut file = File::open(path)?;
@@ -50,6 +48,8 @@ fn read_config(
 
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
+    pretty_env_logger::init();
+
     let welcome_config = cirque_core::WelcomeConfig::default();
 
     let mut reload_signal = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::hangup())?;
@@ -93,9 +93,12 @@ async fn main() -> Result<(), anyhow::Error> {
                 break;
             },
             _ = reload_signal.recv() => {
-                let Ok((config, _, _)) = read_config(&config_path) else {
-                    // TODO: warn
-                    continue;
+                let (config, _, _) = match read_config(&config_path) {
+                    Ok(c) => c,
+                    Err(err) => {
+                        log::error!("cannot reload config: {err}");
+                        continue;
+                    }
                 };
 
                 server_state.set_server_name(&config.server_name);
@@ -103,6 +106,8 @@ async fn main() -> Result<(), anyhow::Error> {
                 server_state.set_password(password);
                 let motd_provider = Arc::new(FixedMOTDProvider(config.motd));
                 server_state.set_motd_provider(motd_provider);
+                // TODO: tls reload
+                log::info!("config reloaded");
             }
         }
     }

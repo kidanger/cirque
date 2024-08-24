@@ -400,8 +400,7 @@ impl ServerStateInner {
                 &self.message_context,
             );
         } else {
-            // TODO: log
-            //panic!("user not found");
+            log::error!("user {user_id:?} not found on send_error for {error}");
         }
     }
 }

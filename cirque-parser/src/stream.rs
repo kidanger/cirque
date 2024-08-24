@@ -36,7 +36,7 @@ impl StreamParser {
 
     pub fn consume_iter(&mut self) -> MessageIterator<'_> {
         if self.buffer.is_full() && !self.buffer.contains(&b'\n') {
-            // TODO: log
+            log::warn!("buffer full without valid message, resetting");
             self.buffer.clear();
         }
         MessageIterator {

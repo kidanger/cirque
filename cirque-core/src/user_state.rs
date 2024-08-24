@@ -15,7 +15,6 @@ impl RegisteringState {
     fn handle_message(
         self,
         server_state: &ServerState,
-        // TODO: take a client_to_server::Message instead
         message: cirque_parser::Message<'_>,
     ) -> UserState {
         let message = match client_to_server::Message::try_from(&message) {
@@ -126,11 +125,11 @@ impl RegisteredState {
             client_to_server::Message::List(list_channels, list_option) => {
                 server_state.user_sends_list_info(self, list_channels, list_option)
             }
-            _ => {
-                // TODO: log
-                //println!("illegal command from connected client");
-                UserState::Registered(self)
-            }
+
+            // weird behaviors from the client:
+            client_to_server::Message::Cap => UserState::Registered(self),
+            client_to_server::Message::User(_, _) => UserState::Registered(self),
+            client_to_server::Message::Pass(_) => UserState::Registered(self),
         }
     }
 }

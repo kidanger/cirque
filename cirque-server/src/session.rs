@@ -34,8 +34,8 @@ impl Session {
                     while let Some(message) = iter.next() {
                         let message = match message {
                             Ok(m) => m,
-                            Err(_err) => {
-                                // TODO: log
+                            Err(err) => {
+                                log::warn!("error when parsing message: {err}");
                                 continue;
                             }
                         };
