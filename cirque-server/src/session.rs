@@ -1,8 +1,7 @@
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-use cirque_core::RegisteringState;
 use cirque_core::ServerState;
-use cirque_core::SessionState;
+use cirque_core::UserState;
 use cirque_parser::{LendingIterator, StreamParser};
 
 use crate::transport::AnyStream;
@@ -16,11 +15,11 @@ impl Session {
         Self { stream }
     }
 
+    // TODO: remove the Result, we don't want shortcuts here
     pub(crate) async fn run(mut self, server_state: ServerState) -> anyhow::Result<()> {
         let mut stream_parser = StreamParser::default();
 
-        let (user_id, mut rx) = server_state.new_registering_user();
-        let mut state = SessionState::Registering(RegisteringState::new(user_id));
+        let (user_id, mut state, mut rx) = server_state.new_registering_user();
 
         while !state.client_disconnected_voluntarily() {
             tokio::select! {
@@ -60,10 +59,10 @@ impl Session {
             // TODO: maybe tolerate a timeout to send the last messages and then force quit
             self.stream.write_all(&buf.into_inner()).await?;
             //self.stream.flush().await?;
-        } else if let SessionState::Registering(_) = state {
+        } else if let UserState::Registering(state) = state {
             // the connection was closed without notification
-            server_state.ruser_disconnects_suddently(user_id);
-        } else if let SessionState::Registered(_) = state {
+            server_state.ruser_disconnects_suddently(state);
+        } else if let UserState::Registered(_state) = state {
             // the connection was closed without notification
             server_state.user_disconnects_suddently(user_id);
         }

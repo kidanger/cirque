@@ -1,77 +1,65 @@
 use crate::client_to_server;
 use crate::server_state::ServerState;
-use crate::UserID;
+use crate::types::UserID;
 
 #[derive(Debug)]
 pub struct RegisteringState {
-    user_id: UserID,
+    pub(crate) user_id: UserID,
 }
 
 impl RegisteringState {
-    pub fn new(user_id: UserID) -> Self {
+    pub(crate) fn new(user_id: UserID) -> Self {
         Self { user_id }
     }
 
     fn handle_message(
         self,
         server_state: &ServerState,
+        // TODO: take a client_to_server::Message instead
         message: cirque_parser::Message<'_>,
-    ) -> SessionState {
+    ) -> UserState {
         let message = match client_to_server::Message::try_from(&message) {
             Ok(message) => message,
             Err(error) => {
                 server_state.ruser_sends_invalid_message(self.user_id, error);
-                return SessionState::Registering(self);
+                return UserState::Registering(self);
             }
         };
 
         match message {
             client_to_server::Message::Cap => {
                 // ignore for now
+                UserState::Registering(self)
             }
             client_to_server::Message::Pass(password) => {
-                server_state.ruser_uses_password(self.user_id, &password);
+                server_state.ruser_uses_password(self, &password)
             }
-            client_to_server::Message::Nick(nick) => {
-                if let Err(err) = server_state.ruser_uses_nick(self.user_id, &nick) {
-                    server_state.send_error(self.user_id, err);
-                }
-            }
+            client_to_server::Message::Nick(nick) => server_state.ruser_uses_nick(self, &nick),
             client_to_server::Message::User(username, realname) => {
-                server_state.ruser_uses_username(self.user_id, &username, &realname);
+                server_state.ruser_uses_username(self, &username, &realname)
             }
             client_to_server::Message::Quit(reason) => {
-                server_state.ruser_disconnects_voluntarily(self.user_id, reason.as_deref());
-                return SessionState::Disconnected;
+                server_state.ruser_disconnects_voluntarily(self, reason.as_deref())
             }
-            client_to_server::Message::Ping(token) => {
-                server_state.ruser_pings(self.user_id, &token);
-            }
+            client_to_server::Message::Ping(token) => server_state.ruser_pings(self, &token),
             client_to_server::Message::Unknown(command) => {
-                server_state.ruser_sends_unknown_command(self.user_id, &command)
+                server_state.ruser_sends_unknown_command(self, &command)
             }
             client_to_server::Message::PrivMsg(_, _) => {
                 // some valid commands should return ErrNotRegistered when not registered
-                server_state.ruser_sends_command_but_is_not_registered(self.user_id)
+                server_state.ruser_sends_command_but_is_not_registered(self)
             }
             _ => {
                 // valid commands should not return replies
+                UserState::Registering(self)
             }
-        };
-
-        match server_state.check_ruser_registration_state(self.user_id) {
-            Ok(true) => SessionState::Registered(RegisteredState {
-                user_id: self.user_id,
-            }),
-            Ok(false) => SessionState::Registering(self),
-            Err(()) => SessionState::Disconnected,
         }
     }
 }
 
 #[derive(Debug)]
 pub struct RegisteredState {
-    user_id: UserID,
+    pub(crate) user_id: UserID,
 }
 
 impl RegisteredState {
@@ -79,12 +67,12 @@ impl RegisteredState {
         self,
         server_state: &ServerState,
         message: cirque_parser::Message<'_>,
-    ) -> SessionState {
+    ) -> UserState {
         let message = match client_to_server::Message::try_from(&message) {
             Ok(message) => message,
             Err(error) => {
                 server_state.user_sends_invalid_message(self.user_id, error);
-                return SessionState::Registered(self);
+                return UserState::Registered(self);
             }
         };
 
@@ -138,7 +126,7 @@ impl RegisteredState {
             client_to_server::Message::Pong(_token) => {}
             client_to_server::Message::Quit(reason) => {
                 server_state.user_disconnects_voluntarily(self.user_id, reason.as_deref());
-                return SessionState::Disconnected {};
+                return UserState::Disconnected {};
             }
             client_to_server::Message::PrivMsg(target, content) => {
                 if let Err(err) = server_state.user_messages_target(self.user_id, &target, &content)
@@ -189,23 +177,25 @@ impl RegisteredState {
             }
         };
 
-        SessionState::Registered(self)
+        UserState::Registered(self)
     }
 }
 
 #[derive(Debug)]
-pub enum SessionState {
+pub enum UserState {
     Registering(RegisteringState),
     Registered(RegisteredState),
     Disconnected,
 }
 
-impl SessionState {
+impl UserState {
+    /// If true, the user is probably still connected and the mailbox may contain important
+    /// messages to send them.
     pub fn client_disconnected_voluntarily(&self) -> bool {
         match self {
-            SessionState::Registering(_) => false,
-            SessionState::Registered(_) => false,
-            SessionState::Disconnected => true,
+            UserState::Registering(_) => false,
+            UserState::Registered(_) => false,
+            UserState::Disconnected => true,
         }
     }
 
@@ -213,15 +203,15 @@ impl SessionState {
         self,
         server_state: &ServerState,
         message: cirque_parser::Message<'_>,
-    ) -> SessionState {
+    ) -> UserState {
         match self {
-            SessionState::Registering(session_state) => {
+            UserState::Registering(session_state) => {
                 session_state.handle_message(server_state, message)
             }
-            SessionState::Registered(session_state) => {
+            UserState::Registered(session_state) => {
                 session_state.handle_message(server_state, message)
             }
-            SessionState::Disconnected => self,
+            UserState::Disconnected => self,
         }
     }
 }
