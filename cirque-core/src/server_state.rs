@@ -303,7 +303,7 @@ impl ServerState {
         UserState::Registering(user_state)
     }
 
-    pub(crate) fn check_ruser_registration_state(&self, user_state: RegisteringState) -> UserState {
+    fn check_ruser_registration_state(&self, user_state: RegisteringState) -> UserState {
         let mut sv = self.0.write();
 
         let user_id = user_state.user_id;
@@ -1625,7 +1625,9 @@ fn validate_channel_name(
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::panic)] // fine in tests
     #![allow(clippy::panic_in_result_fn)] // fine in tests
+    #![allow(clippy::indexing_slicing)] // fine in tests
     use super::*;
 
     #[derive(Debug)]
@@ -1643,42 +1645,72 @@ mod tests {
         ServerState::new("srv", &welcome_config, motd_provider, None)
     }
 
-    //    #[test]
-    //    fn test_nick_change_same() -> Result<(), ServerStateError> {
-    //        let server_state = new_server_state();
-    //        let nick1 = "test";
-    //
-    //        let (user1, mut state1, _rx1) = server_state.new_registering_user();
-    //        state1 = server_state.ruser_uses_nick(state1, "jester")?;
-    //        state1 = server_state.ruser_uses_username(state1, nick1, nick1.as_bytes());
-    //        assert!(server_state.check_ruser_registration_state(state1).unwrap());
-    //
-    //        let (user2, state2, _rx2) = server_state.new_registering_user();
-    //        server_state.ruser_uses_nick(user2, nick1)?;
-    //        server_state.ruser_uses_username(user2, nick1, nick1.as_bytes());
-    //        assert!(server_state.check_ruser_registration_state(user2).unwrap());
-    //
-    //        server_state.user_changes_nick(user1, nick1).unwrap_err();
-    //        Ok(())
-    //    }
-    //
-    //    #[test]
-    //    fn test_nick_change_homoglyph() -> Result<(), ServerStateError> {
-    //        let server_state = new_server_state();
-    //        let nick1 = "test";
-    //        let nick2 = "tėst";
-    //
-    //        let (user1, _rx1) = server_state.new_registering_user();
-    //        server_state.ruser_uses_nick(user1, "jester")?;
-    //        server_state.ruser_uses_username(user1, nick1, nick1.as_bytes());
-    //        assert!(server_state.check_ruser_registration_state(user1).unwrap());
-    //
-    //        let (user2, _rx2) = server_state.new_registering_user();
-    //        server_state.ruser_uses_nick(user2, nick1)?;
-    //        server_state.ruser_uses_username(user2, nick1, nick1.as_bytes());
-    //        assert!(server_state.check_ruser_registration_state(user2).unwrap());
-    //
-    //        server_state.user_changes_nick(user1, nick2).unwrap_err();
-    //        Ok(())
-    //    }
+    fn r1(user_state: UserState) -> RegisteringState {
+        match user_state {
+            UserState::Registering(r) => r,
+            UserState::Registered(_) => panic!(),
+            UserState::Disconnected => panic!(),
+        }
+    }
+
+    fn r2(user_state: UserState) -> RegisteredState {
+        match user_state {
+            UserState::Registering(_) => panic!(),
+            UserState::Registered(r) => r,
+            UserState::Disconnected => panic!(),
+        }
+    }
+
+    fn collect_mail(sink: &mut MailboxSink) -> Vec<Vec<u8>> {
+        let mut messages = vec![];
+        while let Ok(m) = sink.try_recv() {
+            messages.push(m);
+        }
+        messages
+    }
+
+    #[test]
+    fn test_nick_change_same() {
+        let server_state = new_server_state();
+        let nick1 = "test";
+
+        let (mut state1, mut rx1) = server_state.new_registering_user();
+        state1 = server_state.ruser_uses_nick(r1(state1), "jester");
+        state1 = server_state.ruser_uses_username(r1(state1), nick1, nick1.as_bytes());
+        assert!(collect_mail(&mut rx1).len() > 6);
+
+        let (mut state2, _rx2) = server_state.new_registering_user();
+        state2 = server_state.ruser_uses_nick(r1(state2), nick1);
+        server_state.ruser_uses_username(r1(state2), nick1, nick1.as_bytes());
+
+        server_state.user_changes_nick(r2(state1), nick1);
+        let mails = collect_mail(&mut rx1);
+        assert_eq!(
+            mails[0],
+            b":srv 433 jester test :Nickname is already in use\r\n"
+        );
+    }
+
+    #[test]
+    fn test_nick_change_homoglyph() {
+        let server_state = new_server_state();
+        let nick1 = "test";
+        let nick2 = "tėst";
+
+        let (mut state1, mut rx1) = server_state.new_registering_user();
+        state1 = server_state.ruser_uses_nick(r1(state1), "jester");
+        state1 = server_state.ruser_uses_username(r1(state1), nick1, nick1.as_bytes());
+        assert!(collect_mail(&mut rx1).len() > 6);
+
+        let (mut state2, _rx2) = server_state.new_registering_user();
+        state2 = server_state.ruser_uses_nick(r1(state2), nick1);
+        server_state.ruser_uses_username(r1(state2), nick1, nick1.as_bytes());
+
+        server_state.user_changes_nick(r2(state1), nick2);
+        let mails = collect_mail(&mut rx1);
+        assert_eq!(
+            mails[0],
+            b":srv 433 jester t\xC4\x97st :Nickname is already in use\r\n"
+        );
+    }
 }
