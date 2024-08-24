@@ -143,13 +143,11 @@ pub enum UserState {
 }
 
 impl UserState {
-    /// If true, the user is probably still connected and the mailbox may contain important
-    /// messages to send them.
-    pub fn client_disconnected_voluntarily(&self) -> bool {
+    pub fn is_alive(&self) -> bool {
         match self {
-            UserState::Registering(_) => false,
-            UserState::Registered(_) => false,
-            UserState::Disconnected => true,
+            UserState::Registering(_) => true,
+            UserState::Registered(_) => true,
+            UserState::Disconnected => false,
         }
     }
 

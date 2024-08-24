@@ -15,8 +15,8 @@ use crate::server_to_client::{
 use crate::types::{
     Channel, ChannelMode, ChannelUserMode, RegisteredUser, RegisteringUser, UserID, WelcomeConfig,
 };
-use crate::user_state::{RegisteredState, RegisteringState};
-use crate::{MOTDProvider, UserState};
+use crate::user_state::{RegisteredState, RegisteringState, UserState};
+use crate::MOTDProvider;
 
 #[derive(Clone)]
 pub struct ServerState(Arc<RwLock<ServerStateInner>>);
@@ -65,6 +65,18 @@ impl ServerState {
             default_channel_mode: ChannelMode::default().with_no_external(),
         };
         ServerState(Arc::new(RwLock::new(sv)))
+    }
+
+    pub fn dispose_state(&self, state: UserState) {
+        match state {
+            UserState::Registering(state) => {
+                self.ruser_disconnects_suddently(state);
+            }
+            UserState::Registered(state) => {
+                self.user_disconnects_suddently(state);
+            }
+            UserState::Disconnected => {}
+        }
     }
 }
 

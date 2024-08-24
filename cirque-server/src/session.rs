@@ -1,7 +1,6 @@
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use cirque_core::ServerState;
-use cirque_core::UserState;
 use cirque_parser::{LendingIterator, StreamParser};
 
 use crate::transport::AnyStream;
@@ -15,16 +14,17 @@ impl Session {
         Self { stream }
     }
 
-    // TODO: remove the Result, we don't want shortcuts here
-    pub(crate) async fn run(mut self, server_state: ServerState) -> anyhow::Result<()> {
+    pub(crate) async fn run(mut self, server_state: ServerState) {
         let mut stream_parser = StreamParser::default();
 
         let (mut state, mut rx) = server_state.new_registering_user();
 
-        while !state.client_disconnected_voluntarily() {
+        while state.is_alive() {
             tokio::select! {
                 result = self.stream.read_buf(&mut stream_parser) => {
-                    let received = result?;
+                    let Ok(received) = result else {
+                        break;
+                    };
 
                     if received == 0 {
                         break;
@@ -44,29 +44,22 @@ impl Session {
                     }
                 },
                 Some(msg) = rx.recv() => {
-                    self.stream.write_all(&msg).await?;
+                    if self.stream.write_all(&msg).await.is_err() {
+                        break;
+                    }
                 }
             }
         }
 
-        if state.client_disconnected_voluntarily() {
-            // the client sent a QUIT, handle the disconnection gracefully by sending remaining
-            // messages
-            let mut buf = std::io::Cursor::new(Vec::<u8>::new());
-            while let Ok(msg) = rx.try_recv() {
-                std::io::Write::write_all(&mut buf, &msg)?;
-            }
-            // TODO: maybe tolerate a timeout to send the last messages and then force quit
-            self.stream.write_all(&buf.into_inner()).await?;
-            //self.stream.flush().await?;
-        } else if let UserState::Registering(state) = state {
-            // the connection was closed without notification
-            server_state.ruser_disconnects_suddently(state);
-        } else if let UserState::Registered(state) = state {
-            // the connection was closed without notification
-            server_state.user_disconnects_suddently(state);
-        }
+        server_state.dispose_state(state);
 
-        Ok(())
+        // handle the disconnection gracefully by sending remaining
+        // messages (in case the client asked a QUIT for example)
+        let mut buf = std::io::Cursor::new(Vec::<u8>::new());
+        while let Ok(msg) = rx.try_recv() {
+            let _ = std::io::Write::write_all(&mut buf, &msg);
+        }
+        // TODO: maybe tolerate a timeout to send the last messages and then force quit
+        let _ = self.stream.write_all(&buf.into_inner()).await;
     }
 }

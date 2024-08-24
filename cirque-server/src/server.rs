@@ -9,8 +9,8 @@ fn handle_client(server_state: ServerState, stream: anyhow::Result<AnyStream>) {
         // wait until we are in the async task to throw the error
         let stream = stream?;
         let stream = stream.with_debug();
-        Session::init(stream).run(server_state).await?;
-        // TODO: log
+        Session::init(stream).run(server_state).await;
+        // TODO: log end of session
         anyhow::Ok(())
     };
 
