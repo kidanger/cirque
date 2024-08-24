@@ -219,6 +219,7 @@ impl ServerState {
             let user_id = user_state.user_id;
             if let Err(err) = sv.check_nickname(nick, Some(user_id)) {
                 sv.send_error(user_id, err);
+                return UserState::Registering(user_state);
             }
             let user = sv.get_mut_ruser(user_id);
             user.nickname = Some(nick.into());
