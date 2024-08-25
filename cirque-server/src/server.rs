@@ -4,7 +4,7 @@ use crate::session::Session;
 use crate::transport::{AnyStream, Listener};
 use crate::AnyListener;
 
-fn handle_client(server_state: ServerState, stream: anyhow::Result<AnyStream>) {
+fn handle_client(server_state: ServerState, stream: std::io::Result<AnyStream>) {
     let fut = async move {
         // wait until we are in the async task to throw the error
         let mut stream = stream?;
@@ -15,7 +15,7 @@ fn handle_client(server_state: ServerState, stream: anyhow::Result<AnyStream>) {
         }
 
         Session::init(stream).run(server_state).await;
-        log::info!("end of session a client");
+        log::info!("end of session for a client");
         anyhow::Ok(())
     };
 
@@ -26,7 +26,7 @@ fn handle_client(server_state: ServerState, stream: anyhow::Result<AnyStream>) {
     });
 }
 
-pub async fn run_server(listener: AnyListener, server_state: ServerState) -> anyhow::Result<()> {
+pub async fn run_server(listener: AnyListener, server_state: ServerState) -> ! {
     loop {
         let stream = listener.accept().await;
         handle_client(server_state.clone(), stream);

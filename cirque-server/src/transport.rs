@@ -92,7 +92,7 @@ impl AsyncWrite for AnyStream {
 }
 
 pub trait Listener {
-    fn accept(&self) -> impl std::future::Future<Output = anyhow::Result<AnyStream>> + Send;
+    fn accept(&self) -> impl std::future::Future<Output = std::io::Result<AnyStream>> + Send;
 }
 
 pub struct TCPListener {
@@ -100,14 +100,16 @@ pub struct TCPListener {
 }
 
 impl TCPListener {
-    pub async fn try_new(port: u16) -> anyhow::Result<Self> {
-        let listener = TcpListener::bind(format!("[::]:{}", port)).await?;
+    pub fn try_new(address: &str, port: u16) -> anyhow::Result<Self> {
+        let listener = std::net::TcpListener::bind(format!("{address}:{port}"))?;
+        listener.set_nonblocking(true)?;
+        let listener = TcpListener::from_std(listener)?;
         Ok(Self { listener })
     }
 }
 
 impl Listener for TCPListener {
-    async fn accept(&self) -> anyhow::Result<AnyStream> {
+    async fn accept(&self) -> std::io::Result<AnyStream> {
         let (stream, _peer_addr) = self.listener.accept().await?;
         stream.set_nodelay(true)?;
         Ok(AnyStream::new(stream))
@@ -120,7 +122,9 @@ pub struct TLSListener {
 }
 
 impl TLSListener {
-    pub async fn try_new(
+    pub fn try_new(
+        address: &str,
+        port: u16,
         certs: Vec<CertificateDer<'static>>,
         private_key: PrivateKeyDer<'static>,
     ) -> anyhow::Result<Self> {
@@ -129,7 +133,9 @@ impl TLSListener {
             .with_single_cert(certs, private_key)?;
 
         let acceptor = TlsAcceptor::from(Arc::new(config));
-        let listener = TcpListener::bind(format!("[::]:{}", 6697)).await?;
+        let listener = std::net::TcpListener::bind(format!("{address}:{port}"))?;
+        listener.set_nonblocking(true)?;
+        let listener = TcpListener::from_std(listener)?;
         Ok(Self { listener, acceptor })
     }
 
@@ -148,7 +154,7 @@ impl TLSListener {
 }
 
 impl Listener for TLSListener {
-    async fn accept(&self) -> anyhow::Result<AnyStream> {
+    async fn accept(&self) -> std::io::Result<AnyStream> {
         let (stream, _peer_addr) = self.listener.accept().await?;
         let stream = self.acceptor.accept(stream).await?;
         Ok(AnyStream::new(stream))
@@ -161,7 +167,7 @@ pub enum AnyListener {
 }
 
 impl Listener for AnyListener {
-    async fn accept(&self) -> anyhow::Result<AnyStream> {
+    async fn accept(&self) -> std::io::Result<AnyStream> {
         match self {
             AnyListener::Tls(l) => l.accept().await,
             AnyListener::Tcp(l) => l.accept().await,

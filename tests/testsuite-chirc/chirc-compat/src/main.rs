@@ -34,7 +34,7 @@ impl cirque_core::MOTDProvider for FileMOTDProvider {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
-    let listener = TCPListener::try_new(args.port).await?;
+    let listener = TCPListener::try_new("[::]", args.port)?;
 
     let server_name = "srv";
     let welcome_config = WelcomeConfig {

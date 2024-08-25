@@ -6,12 +6,18 @@ use std::{
 
 use yaml_rust2::{Yaml, YamlLoader};
 
+pub struct TlsConfig {
+    pub cert_file_path: PathBuf,
+    pub private_key_file_path: PathBuf,
+}
+
 pub struct Config {
     pub server_name: String,
     pub password: Option<String>,
     pub motd: Option<String>,
-    pub cert_file_path: Option<PathBuf>,
-    pub private_key_file_path: Option<PathBuf>,
+    pub port: u16,
+    pub address: String,
+    pub tls_config: Option<TlsConfig>,
 }
 
 #[macro_export]
@@ -51,19 +57,39 @@ impl Config {
         };
         let password = yaml_path!(doc, "password").as_str().map(Into::into);
         let motd = yaml_path!(doc, "motd").as_str().map(Into::into);
+        let Some(Ok(port)) = yaml_path!(doc, "port").as_i64().map(TryInto::try_into) else {
+            anyhow::bail!("config: missing field `port` (or cannot parse as u16");
+        };
+        let Some(address) = yaml_path!(doc, "address").as_str().map(Into::into) else {
+            anyhow::bail!("config: missing field `address`");
+        };
 
-        let tls_cert = yaml_path!(doc, "tls", "cert").as_str();
-        let tls_key = yaml_path!(doc, "tls", "key").as_str();
+        let tls_config = if !yaml_path!(doc, "tls").is_badvalue() {
+            let Some(tls_cert) = yaml_path!(doc, "tls", "cert").as_str() else {
+                anyhow::bail!("`tls.certificate` field is not specified");
+            };
+            let Some(tls_key) = yaml_path!(doc, "tls", "key").as_str() else {
+                anyhow::bail!("`tls.key` field is not specified");
+            };
 
-        let cert_file_path = tls_cert.map(PathBuf::from_str).transpose()?;
-        let private_key_file_path = tls_key.map(PathBuf::from_str).transpose()?;
+            let cert_file_path = PathBuf::from_str(tls_cert)?;
+            let private_key_file_path = PathBuf::from_str(tls_key)?;
+
+            Some(TlsConfig {
+                cert_file_path,
+                private_key_file_path,
+            })
+        } else {
+            None
+        };
 
         Ok(Self {
             server_name,
             password,
             motd,
-            cert_file_path,
-            private_key_file_path,
+            port,
+            address,
+            tls_config,
         })
     }
 }
@@ -87,8 +113,7 @@ mod tests {
     #[test]
     fn load_valid_config_from_path() -> Result<(), anyhow::Error> {
         let config = Config::load_from_path(&default_yaml_path()?)?;
-        assert!(config.cert_file_path.is_some());
-        assert!(config.private_key_file_path.is_some());
+        assert!(config.tls_config.is_some());
 
         Ok(())
     }
@@ -96,8 +121,7 @@ mod tests {
     #[test]
     fn load_valid_config_from_str() -> Result<(), anyhow::Error> {
         let config = Config::load_from_str(fs::read_to_string(default_yaml_path()?)?.as_str())?;
-        assert!(config.cert_file_path.is_some());
-        assert!(config.private_key_file_path.is_some());
+        assert!(config.tls_config.is_some());
 
         Ok(())
     }
@@ -117,28 +141,21 @@ mod tests {
         docs[0] = doc;
 
         let config = Config::load_from_yaml(docs)?;
-        assert!(config.cert_file_path.is_some());
-        assert!(config.private_key_file_path.is_some());
+        assert!(config.tls_config.is_some());
         Ok(())
     }
 
     #[test]
-    fn load_unvalid_config() -> Result<(), anyhow::Error> {
+    fn load_config_without_tls() -> Result<(), anyhow::Error> {
         let mut docs =
             YamlLoader::load_from_str(fs::read_to_string(default_yaml_path()?)?.as_str())?;
         let mut doc = docs[0].clone();
 
-        // Index access for map & array
-        let certif_path = "0";
-        let key_path = "assets/default.yml";
-        doc["tls"]["cert"] = Yaml::from_str(certif_path);
-        doc["tls"]["key"] = Yaml::from_str(key_path);
-
+        doc["tls"] = yaml_rust2::Yaml::BadValue;
         docs[0] = doc;
 
         let config = Config::load_from_yaml(docs)?;
-        assert!(config.cert_file_path.is_none());
-        assert!(config.private_key_file_path.is_some());
+        assert!(config.tls_config.is_none());
         Ok(())
     }
 }
