@@ -28,7 +28,6 @@ if __name__ == "__main__":
         "QUIT_CHANNEL",
         "NICK_CHANNEL",
         "PRIVMSG_NOTICE",
-        "MOTD",
         "AWAY",
         "LIST",
         "LIST_TOPIC",
@@ -43,6 +42,8 @@ if __name__ == "__main__":
         #   because it allows optional tokens
         # "NAMES",
         #   because it allows optional target channel
+        # "MOTD",
+        #   because it assumes that the server re-reads the motd file on each /MOTD
         # "CHANNEL_TOPIC",
         #   because it doesn't accept RPL_TOPICWHOTIME 333
         # "LUSERS",

@@ -103,7 +103,7 @@ pub(crate) enum Message<'a> {
     #[allow(clippy::upper_case_acronyms)]
     MOTD {
         client: &'a str,
-        motd: Option<Vec<Vec<u8>>>,
+        motd: Option<&'a [Vec<u8>]>,
     },
     LUsers {
         client: &'a str,
@@ -436,7 +436,7 @@ impl Message<'_> {
                         b" :- <server> Message of the day - "
                     );
 
-                    for line in motd {
+                    for line in *motd {
                         message!(stream, b":", sv, b" 372 ", client, b" :- ", line);
                     }
 

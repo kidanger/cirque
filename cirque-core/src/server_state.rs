@@ -16,7 +16,6 @@ use crate::types::{
     Channel, ChannelMode, ChannelUserMode, RegisteredUser, RegisteringUser, UserID, WelcomeConfig,
 };
 use crate::user_state::{RegisteredState, RegisteringState, UserState};
-use crate::MOTDProvider;
 
 #[derive(Clone)]
 pub struct ServerState(Arc<RwLock<ServerStateInner>>);
@@ -35,21 +34,18 @@ struct ServerStateInner {
     server_name: String,
     welcome_config: WelcomeConfig,
     password: Option<Vec<u8>>,
-    motd_provider: Arc<dyn MOTDProvider + Send + Sync>,
+    motd: Option<Vec<Vec<u8>>>,
     default_channel_mode: ChannelMode,
     message_context: MessageContext,
 }
 
 impl ServerState {
-    pub fn new<MP>(
+    pub fn new(
         server_name: &str,
         welcome_config: &WelcomeConfig,
-        motd_provider: Arc<MP>,
+        motd: Option<Vec<Vec<u8>>>,
         password: Option<Vec<u8>>,
-    ) -> Self
-    where
-        MP: MOTDProvider + Send + Sync + 'static,
-    {
+    ) -> Self {
         let sv = ServerStateInner {
             users: Default::default(),
             registering_users: Default::default(),
@@ -57,7 +53,7 @@ impl ServerState {
 
             server_name: server_name.to_owned(),
             welcome_config: welcome_config.to_owned(),
-            motd_provider,
+            motd,
             password,
             message_context: server_to_client::MessageContext {
                 server_name: server_name.to_string(),
@@ -183,12 +179,9 @@ impl ServerState {
         sv.password = password.map(|s| s.into());
     }
 
-    pub fn set_motd_provider<MP>(&self, motd_provider: Arc<MP>)
-    where
-        MP: MOTDProvider + Send + Sync + 'static,
-    {
+    pub fn set_motd(&self, motd: Option<Vec<Vec<u8>>>) {
         let mut sv = self.0.write();
-        sv.motd_provider = motd_provider;
+        sv.motd = motd;
     }
 }
 
@@ -1219,7 +1212,7 @@ impl ServerStateInner {
 
         let message = server_to_client::Message::MOTD {
             client: &user.nickname,
-            motd: self.motd_provider.motd(),
+            motd: self.motd.as_deref(),
         };
         user.send(&message, &self.message_context);
 
@@ -1309,7 +1302,7 @@ impl ServerStateInner {
         };
         let message = server_to_client::Message::MOTD {
             client: &user.nickname,
-            motd: self.motd_provider.motd(),
+            motd: self.motd.as_deref(),
         };
         user.send(&message, &self.message_context);
     }
@@ -1641,19 +1634,10 @@ mod tests {
     #![allow(clippy::indexing_slicing)] // fine in tests
     use super::*;
 
-    #[derive(Debug)]
-    struct FixedMOTDProvider(Option<String>);
-
-    impl MOTDProvider for FixedMOTDProvider {
-        fn motd(&self) -> Option<Vec<Vec<u8>>> {
-            self.0.as_ref().map(|motd| vec![motd.as_bytes().to_vec()])
-        }
-    }
-
     fn new_server_state() -> ServerState {
         let welcome_config = WelcomeConfig::default();
-        let motd_provider = FixedMOTDProvider(None).into();
-        ServerState::new("srv", &welcome_config, motd_provider, None)
+        let motd = None;
+        ServerState::new("srv", &welcome_config, motd, None)
     }
 
     fn r1(user_state: UserState) -> RegisteringState {

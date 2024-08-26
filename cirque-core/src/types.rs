@@ -354,7 +354,3 @@ impl Default for WelcomeConfig {
         }
     }
 }
-
-pub trait MOTDProvider {
-    fn motd(&self) -> Option<Vec<Vec<u8>>>;
-}

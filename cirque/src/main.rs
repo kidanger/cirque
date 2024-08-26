@@ -1,6 +1,5 @@
 use std::fs::File;
 use std::io::BufReader;
-use std::sync::Arc;
 use std::{path::PathBuf, str::FromStr};
 
 use tokio::select;
@@ -11,15 +10,6 @@ use cirque_server::{AnyListener, TCPListener, TLSListener};
 
 mod config;
 
-#[derive(Debug)]
-struct FixedMOTDProvider(Option<String>);
-
-impl cirque_core::MOTDProvider for FixedMOTDProvider {
-    fn motd(&self) -> Option<Vec<Vec<u8>>> {
-        self.0.as_ref().map(|motd| vec![motd.as_bytes().to_vec()])
-    }
-}
-
 fn launch_server(
     config_path: PathBuf,
     server_state: ServerState,
@@ -29,8 +19,12 @@ fn launch_server(
     server_state.set_server_name(&config.server_name);
     let password = config.password.as_ref().map(|p| p.as_bytes());
     server_state.set_password(password);
-    let motd_provider = Arc::new(FixedMOTDProvider(config.motd));
-    server_state.set_motd_provider(motd_provider);
+    server_state.set_motd(
+        config
+            .motd
+            .as_ref()
+            .map(|motd| vec![motd.as_bytes().to_vec()]),
+    );
 
     log::info!("config reloaded");
 
@@ -73,12 +67,18 @@ async fn main() -> Result<(), anyhow::Error> {
     };
     let config_path = PathBuf::from_str(&config_path)?;
 
-    let server_state = ServerState::new(
-        "cirque-server",
-        &cirque_core::WelcomeConfig::default(),
-        Arc::new(FixedMOTDProvider(None)),
-        None,
-    );
+    let server_state = {
+        let config = config::Config::load_from_path(&config_path)?;
+        ServerState::new(
+            "cirque-server",
+            &cirque_core::WelcomeConfig::default(),
+            config
+                .motd
+                .as_ref()
+                .map(|motd| vec![motd.as_bytes().to_vec()]),
+            config.password.map(|p| p.as_bytes().to_vec()),
+        )
+    };
 
     let mut server = launch_server(config_path.clone(), server_state.clone())?;
 
