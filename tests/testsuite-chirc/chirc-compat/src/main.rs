@@ -1,4 +1,3 @@
-
 use clap::Parser;
 
 use cirque_core::{ServerState, WelcomeConfig};
