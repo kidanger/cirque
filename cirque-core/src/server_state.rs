@@ -37,6 +37,7 @@ struct ServerStateInner {
     motd: Option<Vec<Vec<u8>>>,
     default_channel_mode: ChannelMode,
     message_context: MessageContext,
+    messages_per_second_limit: u32,
 }
 
 impl ServerState {
@@ -59,6 +60,7 @@ impl ServerState {
                 server_name: server_name.to_string(),
             },
             default_channel_mode: ChannelMode::default().with_no_external(),
+            messages_per_second_limit: 10,
         };
         ServerState(Arc::new(RwLock::new(sv)))
     }
@@ -182,6 +184,17 @@ impl ServerState {
     pub fn set_motd(&self, motd: Option<Vec<Vec<u8>>>) {
         let mut sv = self.0.write();
         sv.motd = motd;
+    }
+
+    pub fn get_messages_per_second_limit(&self) -> u32 {
+        let sv = self.0.read();
+        sv.messages_per_second_limit
+    }
+
+    /// Warning: changing the value on ServerState does not affect existing clients.
+    pub fn set_messages_per_second_limit(&self, max_messages_per_second: u32) {
+        let mut sv = self.0.write();
+        sv.messages_per_second_limit = max_messages_per_second;
     }
 }
 

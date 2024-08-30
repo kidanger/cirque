@@ -3,6 +3,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use cirque_core::ServerState;
 use cirque_parser::{LendingIterator, StreamParser};
 
+use crate::message_throttler::MessageThrottler;
 use crate::transport::AnyStream;
 
 pub(crate) struct Session {
@@ -16,6 +17,8 @@ impl Session {
 
     pub(crate) async fn run(mut self, server_state: ServerState) {
         let mut stream_parser = StreamParser::default();
+        let mut message_throttler =
+            MessageThrottler::new(server_state.get_messages_per_second_limit());
 
         let (mut state, mut rx) = server_state.new_registering_user();
 
@@ -41,6 +44,7 @@ impl Session {
                         };
 
                         state = state.handle_message(&server_state, message);
+                        message_throttler.maybe_slow_down().await;
                     }
                 },
                 Some(msg) = rx.recv() => {

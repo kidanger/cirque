@@ -25,5 +25,6 @@ async fn main() -> anyhow::Result<()> {
     let motd = None;
 
     let server_state = ServerState::new(server_name, &welcome_config, motd, None);
+    server_state.set_messages_per_second_limit(100);
     cirque_server::run_server(AnyListener::Tcp(listener), server_state).await
 }
