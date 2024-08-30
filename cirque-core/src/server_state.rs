@@ -321,7 +321,10 @@ impl ServerState {
         }
 
         let user = user.remove();
-        if user.password != sv.password {
+        if !constant_time_eq::constant_time_eq(
+            user.password.as_deref().unwrap_or_default(),
+            sv.password.as_deref().unwrap_or_default(),
+        ) {
             let message = server_to_client::Message::Err(ServerStateError::PasswdMismatch {
                 client: user.maybe_nickname(),
             });
