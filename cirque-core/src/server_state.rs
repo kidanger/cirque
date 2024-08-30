@@ -104,7 +104,7 @@ impl ServerStateInner {
         }
 
         let nickname_is_valid = if let Some(first_char) = nickname.chars().nth(0) {
-            first_char.is_alphanumeric() || first_char == '_'
+            (first_char.is_alphanumeric() || first_char == '_') && nickname.len() <= 16
         } else {
             false
         };
