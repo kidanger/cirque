@@ -4,6 +4,7 @@ use std::{
     str::FromStr,
 };
 
+use cirque_core::ChannelMode;
 use yaml_rust2::{Yaml, YamlLoader};
 
 pub struct TlsConfig {
@@ -18,6 +19,7 @@ pub struct Config {
     pub port: u16,
     pub address: String,
     pub tls_config: Option<TlsConfig>,
+    pub default_channel_mode: Option<ChannelMode>,
 }
 
 #[macro_export]
@@ -57,6 +59,11 @@ impl Config {
         };
         let password = yaml_path!(doc, "password").as_str().map(Into::into);
         let motd = yaml_path!(doc, "motd").as_str().map(Into::into);
+        let default_channel_mode = yaml_path!(doc, "default_channel_mode")
+            .as_str()
+            .map(TryInto::try_into)
+            .transpose()
+            .map_err(|e: String| anyhow::anyhow!(e))?;
         let Some(Ok(port)) = yaml_path!(doc, "port").as_i64().map(TryInto::try_into) else {
             anyhow::bail!("config: missing field `port` (or cannot parse as u16");
         };
@@ -90,6 +97,7 @@ impl Config {
             port,
             address,
             tls_config,
+            default_channel_mode,
         })
     }
 }

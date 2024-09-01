@@ -163,7 +163,7 @@ impl ChannelUserMode {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub(crate) struct ChannelMode {
+pub struct ChannelMode {
     secret: bool,
     topic_protected: bool,
     moderated: bool,
@@ -178,6 +178,20 @@ impl Default for ChannelMode {
             moderated: Default::default(),
             no_external: true,
         }
+    }
+}
+
+impl TryFrom<&str> for ChannelMode {
+    type Error = String;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        value.chars().try_fold(Self::default(), |mode, c| match c {
+            's' => Ok(mode.with_secret()),
+            't' => Ok(mode.with_topic_protected()),
+            'm' => Ok(mode.with_moderated()),
+            'n' => Ok(mode.with_no_external()),
+            c => Err(format!("unknown channel modechar '{c}'")),
+        })
     }
 }
 

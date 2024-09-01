@@ -25,6 +25,7 @@ fn launch_server(
             .as_ref()
             .map(|motd| vec![motd.as_bytes().to_vec()]),
     );
+    server_state.set_default_channel_mode(&config.default_channel_mode.unwrap_or_default());
 
     log::info!("config reloaded");
 

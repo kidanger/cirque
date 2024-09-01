@@ -9,6 +9,7 @@ mod types;
 mod user_state;
 
 pub use server_state::ServerState;
+pub use types::ChannelMode;
 pub use types::UserID;
 pub use types::WelcomeConfig;
 pub use user_state::UserState;

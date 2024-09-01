@@ -59,7 +59,7 @@ impl ServerState {
             message_context: server_to_client::MessageContext {
                 server_name: server_name.to_string(),
             },
-            default_channel_mode: ChannelMode::default().with_no_external(),
+            default_channel_mode: Default::default(),
             messages_per_second_limit: 10,
         };
         ServerState(Arc::new(RwLock::new(sv)))
@@ -195,6 +195,11 @@ impl ServerState {
     pub fn set_messages_per_second_limit(&self, max_messages_per_second: u32) {
         let mut sv = self.0.write();
         sv.messages_per_second_limit = max_messages_per_second;
+    }
+
+    pub fn set_default_channel_mode(&self, default_channel_mode: &ChannelMode) {
+        let mut sv = self.0.write();
+        sv.default_channel_mode = default_channel_mode.clone();
     }
 }
 
