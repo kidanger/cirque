@@ -61,16 +61,24 @@ impl ConnectionValidator {
     }
 
     pub(crate) fn validate(&mut self, peer_addr: SocketAddr) -> Result<(), std::io::Error> {
+        let now = Instant::now();
         let ip = peer_addr.ip();
         let stats = self.stats.entry(ip).or_default();
 
-        stats.refill(Instant::now());
+        stats.refill(now);
 
         if !stats.consume_one() {
             return Err(std::io::Error::other(format!(
                 "connection from {ip} dropped due to poor stats"
             )));
         }
+
+        // clean-up the hashmap to free space
+        // it is only done on successful connection, so it is less triggered when getting spammed
+        self.stats.retain(|_, stats| {
+            stats.refill(now);
+            stats.fuel != stats.tank_size || stats.fill_rate != stats.max_fill_rate
+        });
 
         Ok(())
     }
