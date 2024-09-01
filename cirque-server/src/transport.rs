@@ -12,6 +12,8 @@ use tokio_rustls::{
     TlsAcceptor,
 };
 
+use crate::connection_validator::ConnectionValidator;
+
 pub trait Stream: AsyncRead + AsyncWrite + Unpin + Send {}
 
 impl Stream for tokio::net::TcpStream {}
@@ -92,7 +94,10 @@ impl AsyncWrite for AnyStream {
 }
 
 pub trait Listener {
-    fn accept(&self) -> impl std::future::Future<Output = std::io::Result<AnyStream>> + Send;
+    fn accept(
+        &self,
+        validator: &mut ConnectionValidator,
+    ) -> impl std::future::Future<Output = std::io::Result<AnyStream>> + Send;
 }
 
 pub struct TCPListener {
@@ -109,8 +114,9 @@ impl TCPListener {
 }
 
 impl Listener for TCPListener {
-    async fn accept(&self) -> std::io::Result<AnyStream> {
-        let (stream, _peer_addr) = self.listener.accept().await?;
+    async fn accept(&self, validator: &mut ConnectionValidator) -> std::io::Result<AnyStream> {
+        let (stream, peer_addr) = self.listener.accept().await?;
+        validator.validate(peer_addr)?;
         stream.set_nodelay(true)?;
         Ok(AnyStream::new(stream))
     }
@@ -154,8 +160,9 @@ impl TLSListener {
 }
 
 impl Listener for TLSListener {
-    async fn accept(&self) -> std::io::Result<AnyStream> {
-        let (stream, _peer_addr) = self.listener.accept().await?;
+    async fn accept(&self, validator: &mut ConnectionValidator) -> std::io::Result<AnyStream> {
+        let (stream, peer_addr) = self.listener.accept().await?;
+        validator.validate(peer_addr)?;
         let stream = self.acceptor.accept(stream).await?;
         Ok(AnyStream::new(stream))
     }
@@ -167,10 +174,10 @@ pub enum AnyListener {
 }
 
 impl Listener for AnyListener {
-    async fn accept(&self) -> std::io::Result<AnyStream> {
+    async fn accept(&self, validator: &mut ConnectionValidator) -> std::io::Result<AnyStream> {
         match self {
-            AnyListener::Tls(l) => l.accept().await,
-            AnyListener::Tcp(l) => l.accept().await,
+            AnyListener::Tls(l) => l.accept(validator).await,
+            AnyListener::Tcp(l) => l.accept(validator).await,
         }
     }
 }
