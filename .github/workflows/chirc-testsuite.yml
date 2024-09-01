@@ -26,4 +26,4 @@ jobs:
 
     - name: test
       run: |
-        python scripts/launch_tu.py
+        python tests/testsuite-chirc/run.py
