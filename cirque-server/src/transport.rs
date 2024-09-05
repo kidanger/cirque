@@ -94,10 +94,12 @@ impl AsyncWrite for AnyStream {
 }
 
 pub trait Listener {
-    fn accept(
+    fn accept<CV>(
         &self,
-        validator: &mut ConnectionValidator,
-    ) -> impl std::future::Future<Output = std::io::Result<AnyStream>> + Send;
+        validator: &mut CV,
+    ) -> impl std::future::Future<Output = std::io::Result<AnyStream>> + Send
+    where
+        CV: ConnectionValidator + Send;
 }
 
 pub struct TCPListener {
@@ -114,7 +116,10 @@ impl TCPListener {
 }
 
 impl Listener for TCPListener {
-    async fn accept(&self, validator: &mut ConnectionValidator) -> std::io::Result<AnyStream> {
+    async fn accept<CV>(&self, validator: &mut CV) -> std::io::Result<AnyStream>
+    where
+        CV: ConnectionValidator,
+    {
         let (stream, peer_addr) = self.listener.accept().await?;
         validator.validate(peer_addr)?;
         stream.set_nodelay(true)?;
@@ -160,7 +165,10 @@ impl TLSListener {
 }
 
 impl Listener for TLSListener {
-    async fn accept(&self, validator: &mut ConnectionValidator) -> std::io::Result<AnyStream> {
+    async fn accept<CV>(&self, validator: &mut CV) -> std::io::Result<AnyStream>
+    where
+        CV: ConnectionValidator + Send,
+    {
         let (stream, peer_addr) = self.listener.accept().await?;
         validator.validate(peer_addr)?;
         let stream = self.acceptor.accept(stream).await?;
@@ -174,7 +182,10 @@ pub enum AnyListener {
 }
 
 impl Listener for AnyListener {
-    async fn accept(&self, validator: &mut ConnectionValidator) -> std::io::Result<AnyStream> {
+    async fn accept<CV>(&self, validator: &mut CV) -> std::io::Result<AnyStream>
+    where
+        CV: ConnectionValidator + Send,
+    {
         match self {
             AnyListener::Tls(l) => l.accept(validator).await,
             AnyListener::Tcp(l) => l.accept(validator).await,

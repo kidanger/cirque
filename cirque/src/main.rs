@@ -5,7 +5,7 @@ use std::{path::PathBuf, str::FromStr};
 use tokio::select;
 
 use cirque_core::ServerState;
-use cirque_server::run_server;
+use cirque_server::{run_server, ConnectionLimiter};
 use cirque_server::{AnyListener, TCPListener, TLSListener};
 
 mod config;
@@ -29,6 +29,7 @@ fn launch_server(
 
     log::info!("config reloaded");
 
+    let connection_limiter = ConnectionLimiter::default();
     let future = if let Some(tls_config) = config.tls_config {
         let certs = {
             let mut file = File::open(tls_config.cert_file_path)?;
@@ -44,13 +45,13 @@ fn launch_server(
         let listener = TLSListener::try_new(&config.address, config.port, certs, private_key)?;
         tokio::task::spawn(async move {
             let listener = AnyListener::Tls(listener);
-            run_server(listener, server_state).await
+            run_server(listener, server_state, connection_limiter).await
         })
     } else {
         let listener = TCPListener::try_new(&config.address, config.port)?;
         tokio::task::spawn(async move {
             let listener = AnyListener::Tcp(listener);
-            run_server(listener, server_state).await
+            run_server(listener, server_state, connection_limiter).await
         })
     };
 

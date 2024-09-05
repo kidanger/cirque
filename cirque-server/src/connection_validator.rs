@@ -4,6 +4,18 @@ use std::{
     time::Instant,
 };
 
+pub trait ConnectionValidator {
+    fn validate(&mut self, peer_addr: SocketAddr) -> Result<(), std::io::Error>;
+}
+
+pub struct AcceptAll {}
+
+impl ConnectionValidator for AcceptAll {
+    fn validate(&mut self, _peer_addr: SocketAddr) -> Result<(), std::io::Error> {
+        Ok(())
+    }
+}
+
 #[derive(Debug)]
 struct Config {
     /// A connection consumes this amount of credits.
@@ -67,13 +79,19 @@ impl Stats {
 }
 
 #[derive(Debug)]
-pub(crate) struct ConnectionValidator {
+pub struct ConnectionLimiter {
     stats: HashMap<IpAddr, Stats>,
     config: Config,
 }
 
-impl ConnectionValidator {
-    pub(crate) fn new() -> Self {
+impl ConnectionValidator for ConnectionLimiter {
+    fn validate(&mut self, peer_addr: SocketAddr) -> Result<(), std::io::Error> {
+        self.validate_at_time(peer_addr, Instant::now())
+    }
+}
+
+impl ConnectionLimiter {
+    pub fn new() -> Self {
         Self {
             stats: Default::default(),
             config: Config {
@@ -112,9 +130,11 @@ impl ConnectionValidator {
 
         Ok(())
     }
+}
 
-    pub(crate) fn validate(&mut self, peer_addr: SocketAddr) -> Result<(), std::io::Error> {
-        self.validate_at_time(peer_addr, Instant::now())
+impl Default for ConnectionLimiter {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -126,11 +146,11 @@ mod tests {
         time::{Duration, Instant},
     };
 
-    use super::ConnectionValidator;
+    use super::ConnectionLimiter;
 
     #[test]
     fn test1() {
-        let mut validator = ConnectionValidator::new();
+        let mut validator = ConnectionLimiter::new();
         let ip1 = SocketAddr::from_str("10.0.0.1:12340").unwrap();
         let ip2 = SocketAddr::from_str("10.0.0.2:12340").unwrap();
 

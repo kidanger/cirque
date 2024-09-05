@@ -1,6 +1,6 @@
 use cirque_core::ServerState;
 
-use crate::connection_validator::ConnectionValidator;
+use crate::connection_validator::{ConnectionValidator};
 use crate::session::Session;
 use crate::transport::{AnyStream, Listener};
 use crate::AnyListener;
@@ -27,10 +27,16 @@ fn handle_client(server_state: ServerState, stream: std::io::Result<AnyStream>) 
     });
 }
 
-pub async fn run_server(listener: AnyListener, server_state: ServerState) -> ! {
-    let mut connection_limiter = ConnectionValidator::new();
+pub async fn run_server<CV>(
+    listener: AnyListener,
+    server_state: ServerState,
+    mut connection_validator: CV,
+) -> !
+where
+    CV: ConnectionValidator + Send,
+{
     loop {
-        let stream = listener.accept(&mut connection_limiter).await;
+        let stream = listener.accept(&mut connection_validator).await;
         handle_client(server_state.clone(), stream);
     }
 }

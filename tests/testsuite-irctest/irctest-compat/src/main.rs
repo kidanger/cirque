@@ -1,7 +1,7 @@
 use clap::Parser;
 
 use cirque_core::{ServerState, WelcomeConfig};
-use cirque_server::{AnyListener, TCPListener};
+use cirque_server::{AcceptAll, AnyListener, TCPListener};
 
 /// Simple program to greet a person
 #[derive(Parser, Debug)]
@@ -30,5 +30,5 @@ async fn main() -> anyhow::Result<()> {
 
     let server_state = ServerState::new(server_name, &welcome_config, motd, password);
     server_state.set_messages_per_second_limit(100);
-    cirque_server::run_server(AnyListener::Tcp(listener), server_state).await
+    cirque_server::run_server(AnyListener::Tcp(listener), server_state, AcceptAll {}).await
 }
