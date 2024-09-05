@@ -93,14 +93,17 @@ async fn main() -> Result<(), anyhow::Error> {
                     Ok(_) => {
                         unreachable!();
                     },
-                    Err(err) if err.is_panic() => {
-                        log::error!("panic from the listener");
-                        std::panic::resume_unwind(err.into_panic());
-                    },
-                    Err(err)  => {
-                        assert!(err.is_cancelled());
-                        // otherwise, it's just an error due to cancellation of the task
-                        // (when reloading the config)
+                    Err(err) =>{
+                        match err.is_panic() {
+                            true => {
+                                log::error!("panic from the listener");
+                                std::panic::resume_unwind(err.into_panic());
+                            },
+                            false => {
+                                // otherwise, it's just an error due to cancellation of the task
+                                // (when reloading the config)
+                            },
+                        }
                     },
                 }
 
