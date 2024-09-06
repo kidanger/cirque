@@ -60,7 +60,9 @@ fn launch_server(
 
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
-    pretty_env_logger::init();
+    pretty_env_logger::formatted_builder()
+        .filter_level(log::LevelFilter::Info)
+        .try_init()?;
 
     let mut reload_signal = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::hangup())?;
 
