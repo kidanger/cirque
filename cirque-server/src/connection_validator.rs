@@ -116,7 +116,7 @@ impl ConnectionLimiter {
 
         if !stats.consume_one(config) {
             return Err(std::io::Error::other(format!(
-                "connection from {ip} dropped due to poor stats"
+                "connection from {ip} dropped due to poor stats"
             )));
         }
 
