@@ -38,7 +38,7 @@ impl Session {
                         let message = match message {
                             Ok(m) => m,
                             Err(err) => {
-                                log::warn!("error when parsing message: {err}");
+                                log::warn!("error when parsing message: {err:#}");
                                 continue;
                             }
                         };

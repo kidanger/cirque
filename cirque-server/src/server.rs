@@ -22,7 +22,7 @@ fn handle_client(server_state: ServerState, stream: std::io::Result<AnyStream>) 
 
     tokio::spawn(async move {
         if let Err(err) = fut.await {
-            log::error!("error when handling_client: {err}");
+            log::error!("error when handling_client: {err:#}");
         }
     });
 }

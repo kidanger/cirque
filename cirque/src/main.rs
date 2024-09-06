@@ -126,7 +126,7 @@ async fn main() -> Result<(), anyhow::Error> {
                         server_handle = s;
                     },
                     Err(err) => {
-                        log::error!("error when relaunching the server: {err}");
+                        log::error!("error when relaunching the server: {err:#}");
                         log::error!("fix the config and send SIGHUP again (otherwise new clients cannot connect)");
                         server_handle = tokio::spawn(std::future::pending());
                     },
