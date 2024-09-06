@@ -1,6 +1,6 @@
 use cirque_core::ServerState;
 
-use crate::connection_validator::{ConnectionValidator};
+use crate::connection_validator::ConnectionValidator;
 use crate::session::Session;
 use crate::transport::{AnyStream, Listener};
 use crate::AnyListener;
