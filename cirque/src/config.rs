@@ -1,9 +1,9 @@
 use std::{
-    fs,
     path::{Path, PathBuf},
     str::FromStr,
 };
 
+use anyhow::Context;
 use cirque_core::ChannelMode;
 use yaml_rust2::{Yaml, YamlLoader};
 
@@ -36,13 +36,14 @@ macro_rules! yaml_path {
 }
 
 impl Config {
-    pub fn load_from_str(in_str: &str) -> Result<Self, anyhow::Error> {
-        let docs = YamlLoader::load_from_str(in_str)?;
+    pub fn load_from_str(str: &str) -> Result<Self, anyhow::Error> {
+        let docs = YamlLoader::load_from_str(str)?;
         Config::load_from_yaml(docs)
     }
 
-    pub fn load_from_path(in_path: &Path) -> Result<Self, anyhow::Error> {
-        let string = fs::read_to_string(in_path)?;
+    pub fn load_from_path(path: &Path) -> Result<Self, anyhow::Error> {
+        let string = std::fs::read_to_string(path)
+            .with_context(|| format!("reading config file {path:?}"))?;
         Config::load_from_str(string.as_str())
     }
 

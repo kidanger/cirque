@@ -2,6 +2,7 @@ use std::fs::File;
 use std::io::BufReader;
 use std::{path::PathBuf, str::FromStr};
 
+use anyhow::Context;
 use tokio::select;
 
 use cirque_core::ServerState;
@@ -14,7 +15,8 @@ fn launch_server(
     config_path: PathBuf,
     server_state: ServerState,
 ) -> anyhow::Result<tokio::task::JoinHandle<()>> {
-    let config = config::Config::load_from_path(&config_path)?;
+    let config = config::Config::load_from_path(&config_path)
+        .with_context(|| format!("loading config file {config_path:?}"))?;
 
     server_state.set_server_name(&config.server_name);
     let password = config.password.as_ref().map(|p| p.as_bytes());
@@ -27,17 +29,27 @@ fn launch_server(
     );
     server_state.set_default_channel_mode(&config.default_channel_mode.unwrap_or_default());
 
-    log::info!("config reloaded");
+    log::info!("config loaded");
 
     let connection_limiter = ConnectionLimiter::default();
     let future = if let Some(tls_config) = config.tls_config {
         let certs = {
-            let mut file = File::open(tls_config.cert_file_path)?;
+            let mut file = File::open(&tls_config.cert_file_path).with_context(|| {
+                format!(
+                    "cannot open certificate file {:?}",
+                    &tls_config.cert_file_path
+                )
+            })?;
             rustls_pemfile::certs(&mut BufReader::new(&mut file)).collect::<Result<Vec<_>, _>>()?
         };
 
         let private_key = {
-            let mut file = File::open(tls_config.private_key_file_path)?;
+            let mut file = File::open(&tls_config.private_key_file_path).with_context(|| {
+                format!(
+                    "cannot open private key file {:?}",
+                    &tls_config.private_key_file_path
+                )
+            })?;
             rustls_pemfile::private_key(&mut BufReader::new(&mut file))?
                 .ok_or_else(|| anyhow::anyhow!("cannot load private key"))?
         };
@@ -84,14 +96,14 @@ async fn main() -> Result<(), anyhow::Error> {
         )
     };
 
-    let mut server = launch_server(config_path.clone(), server_state.clone())?;
+    let mut server_handle = launch_server(config_path.clone(), server_state.clone())?;
 
     loop {
         select! {
             _ = reload_signal.recv() => {
-                server.abort();
+                server_handle.abort();
             },
-            result = &mut server => {
+            result = &mut server_handle => {
                 match result {
                     Ok(_) => {
                         unreachable!();
@@ -112,15 +124,14 @@ async fn main() -> Result<(), anyhow::Error> {
 
                 match launch_server(config_path.clone(), server_state.clone()) {
                     Ok(s) => {
-                        server = s;
+                        server_handle = s;
                     },
                     Err(err) => {
                         log::error!("error when relaunching the server: {err}");
                         log::error!("fix the config and send SIGHUP again (otherwise new clients cannot connect)");
-                        server = tokio::spawn(std::future::pending());
+                        server_handle = tokio::spawn(std::future::pending());
                     },
                 };
-                log::info!("recreated the listener");
             },
         }
     }
