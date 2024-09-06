@@ -108,9 +108,11 @@ pub struct TCPListener {
 
 impl TCPListener {
     pub fn try_new(address: &str, port: u16) -> anyhow::Result<Self> {
-        let listener = std::net::TcpListener::bind(format!("{address}:{port}"))?;
+        let addr = format!("{address}:{port}");
+        let listener = std::net::TcpListener::bind(&addr)?;
         listener.set_nonblocking(true)?;
         let listener = TcpListener::from_std(listener)?;
+        log::info!("listening on {addr} (TCP without TLS)");
         Ok(Self { listener })
     }
 }
@@ -144,9 +146,11 @@ impl TLSListener {
             .with_single_cert(certs, private_key)?;
 
         let acceptor = TlsAcceptor::from(Arc::new(config));
-        let listener = std::net::TcpListener::bind(format!("{address}:{port}"))?;
+        let addr = format!("{address}:{port}");
+        let listener = std::net::TcpListener::bind(&addr)?;
         listener.set_nonblocking(true)?;
         let listener = TcpListener::from_std(listener)?;
+        log::info!("listening on {addr} (TCP with TLS)");
         Ok(Self { listener, acceptor })
     }
 
