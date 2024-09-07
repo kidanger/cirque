@@ -27,14 +27,11 @@ fn handle_client(server_state: ServerState, stream: std::io::Result<AnyStream>) 
     });
 }
 
-pub async fn run_server<CV>(
+pub async fn run_server(
     listener: AnyListener,
     server_state: ServerState,
-    mut connection_validator: CV,
-) -> !
-where
-    CV: ConnectionValidator + Send,
-{
+    mut connection_validator: impl ConnectionValidator + Send,
+) -> ! {
     loop {
         let stream = listener.accept(&mut connection_validator).await;
         handle_client(server_state.clone(), stream);
