@@ -75,6 +75,9 @@ pub(crate) enum Message<'a> {
         channel: &'a str,
         topic: &'a Topic,
     },
+    Ping {
+        token: &'a [u8],
+    },
     Pong {
         token: &'a [u8],
     },
@@ -365,6 +368,9 @@ impl Message<'_> {
                     b" :",
                     &topic.content
                 );
+            }
+            Message::Ping { token } => {
+                message!(stream, b":", sv, b" PING :", token);
             }
             Message::Pong { token } => {
                 message!(stream, b":", sv, b" PONG ", sv, b" :", token);

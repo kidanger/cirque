@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use cirque_core::ServerState;
@@ -19,6 +21,9 @@ impl Session {
         let mut stream_parser = StreamParser::default();
         let mut message_throttler =
             MessageThrottler::new(server_state.get_messages_per_second_limit());
+
+        let timeout = Duration::from_secs(60);
+        let mut timer = tokio::time::interval(timeout.div_f32(4.));
 
         let (mut state, mut rx) = server_state.new_registering_user();
 
@@ -51,6 +56,9 @@ impl Session {
                     if self.stream.write_all(&msg).await.is_err() {
                         break;
                     }
+                }
+                _ = timer.tick() => {
+                    state = state.check_timeout(&server_state, timeout);
                 }
             }
         }

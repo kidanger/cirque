@@ -1,19 +1,47 @@
+use std::time::{Duration, Instant};
+
 use crate::client_to_server;
 use crate::server_state::ServerState;
 use crate::types::UserID;
 
 #[derive(Debug)]
+struct Ping {
+    token: Vec<u8>,
+    at: Instant,
+}
+
+#[derive(Debug)]
+struct Pong {
+    token: Vec<u8>,
+}
+
+#[derive(Debug)]
+struct PingState {
+    created: Instant,
+    last_sent: Option<Ping>,
+    last_received: Option<Pong>,
+}
+
+#[derive(Debug)]
 pub struct RegisteringState {
     pub(crate) user_id: UserID,
+    ping_state: PingState,
 }
 
 impl RegisteringState {
     pub(crate) fn new(user_id: UserID) -> Self {
-        Self { user_id }
+        Self {
+            user_id,
+            ping_state: PingState {
+                created: Instant::now(),
+                last_sent: None,
+                last_received: None,
+            },
+        }
     }
 
     fn handle_message(
-        self,
+        mut self,
         server_state: &ServerState,
         message: cirque_parser::Message<'_>,
     ) -> UserState {
@@ -40,6 +68,10 @@ impl RegisteringState {
                 server_state.ruser_disconnects_voluntarily(self, reason.as_deref())
             }
             client_to_server::Message::Ping(token) => server_state.ruser_pings(self, &token),
+            client_to_server::Message::Pong(token) => {
+                self.ping_state.last_received = Some(Pong { token });
+                UserState::Registering(self)
+            }
             client_to_server::Message::Unknown(command) => {
                 server_state.ruser_sends_unknown_command(self, &command)
             }
@@ -58,11 +90,19 @@ impl RegisteringState {
 #[derive(Debug)]
 pub struct RegisteredState {
     pub(crate) user_id: UserID,
+    ping_state: PingState,
 }
 
 impl RegisteredState {
+    pub(crate) fn from_registering_state(user_state: RegisteringState) -> Self {
+        Self {
+            user_id: user_state.user_id,
+            ping_state: user_state.ping_state,
+        }
+    }
+
     fn handle_message(
-        self,
+        mut self,
         server_state: &ServerState,
         message: cirque_parser::Message<'_>,
     ) -> UserState {
@@ -91,7 +131,10 @@ impl RegisteredState {
                 server_state.user_changes_channel_mode(self, &channel, &modechar, param.as_deref())
             }
             client_to_server::Message::Ping(token) => server_state.user_pings(self, &token),
-            client_to_server::Message::Pong(_token) => UserState::Registered(self),
+            client_to_server::Message::Pong(token) => {
+                self.ping_state.last_received = Some(Pong { token });
+                UserState::Registered(self)
+            }
             client_to_server::Message::Quit(reason) => {
                 server_state.user_disconnects_voluntarily(self, reason.as_deref())
             }
@@ -144,9 +187,9 @@ pub enum UserState {
 impl UserState {
     pub fn is_alive(&self) -> bool {
         match self {
-            UserState::Registering(_) => true,
-            UserState::Registered(_) => true,
-            UserState::Disconnected => false,
+            Self::Registering(_) => true,
+            Self::Registered(_) => true,
+            Self::Disconnected => false,
         }
     }
 
@@ -154,15 +197,101 @@ impl UserState {
         self,
         server_state: &ServerState,
         message: cirque_parser::Message<'_>,
-    ) -> UserState {
+    ) -> Self {
         match self {
-            UserState::Registering(session_state) => {
-                session_state.handle_message(server_state, message)
+            Self::Registering(session_state) => session_state.handle_message(server_state, message),
+            Self::Registered(session_state) => session_state.handle_message(server_state, message),
+            Self::Disconnected => self,
+        }
+    }
+
+    pub fn check_timeout(self, server_state: &ServerState, timeout: Duration) -> Self {
+        #[derive(Debug)]
+        enum PingStatus {
+            AllGood,
+            Timeout(Duration),
+            NeedToSend,
+        }
+
+        fn check_ping_status(status: &PingState, timeout: Duration) -> PingStatus {
+            if status.created.elapsed().as_secs_f32() < 5. {
+                return PingStatus::AllGood;
             }
-            UserState::Registered(session_state) => {
-                session_state.handle_message(server_state, message)
+            match (&status.last_sent, &status.last_received) {
+                (None, None) => PingStatus::NeedToSend,
+                (None, Some(_)) => PingStatus::NeedToSend,
+                (Some(ping), None) => {
+                    let elapsed = ping.at.elapsed();
+                    if elapsed < timeout {
+                        PingStatus::AllGood
+                    } else {
+                        PingStatus::Timeout(elapsed)
+                    }
+                }
+                (Some(ping), Some(pong)) => {
+                    let elapsed_sent = ping.at.elapsed();
+
+                    if elapsed_sent < timeout {
+                        // not yet timed-out, nothing to do
+                        return PingStatus::AllGood;
+                    }
+
+                    if ping.token == pong.token {
+                        // if the time is up, but the token was replied, we need to send a new ping
+                        return PingStatus::NeedToSend;
+                    }
+
+                    // the client didn't reply to the ping in time
+                    PingStatus::Timeout(elapsed_sent)
+                }
             }
-            UserState::Disconnected => self,
+        }
+
+        fn generate_token() -> Vec<u8> {
+            uuid::Uuid::new_v4().to_string().into()
+        }
+
+        let status = match &self {
+            UserState::Registering(state) => check_ping_status(&state.ping_state, timeout),
+            UserState::Registered(state) => check_ping_status(&state.ping_state, timeout),
+            UserState::Disconnected => PingStatus::AllGood,
+        };
+
+        match status {
+            PingStatus::AllGood => self,
+            PingStatus::Timeout(duration) => {
+                let reason = format!("Timeout ({:.2}s)", duration.as_secs_f32());
+                let reason = reason.as_bytes();
+                match self {
+                    UserState::Registering(state) => {
+                        server_state.ruser_disconnects_voluntarily(state, Some(reason))
+                    }
+                    UserState::Registered(state) => {
+                        server_state.user_disconnects_voluntarily(state, Some(reason))
+                    }
+                    UserState::Disconnected => self,
+                }
+            }
+            PingStatus::NeedToSend => {
+                let token = generate_token();
+                match self {
+                    UserState::Registering(mut state) => {
+                        state.ping_state.last_sent = Some(Ping {
+                            token: token.clone(),
+                            at: Instant::now(),
+                        });
+                        server_state.send_ping_to_ruser(state, &token)
+                    }
+                    UserState::Registered(mut state) => {
+                        state.ping_state.last_sent = Some(Ping {
+                            token: token.clone(),
+                            at: Instant::now(),
+                        });
+                        server_state.send_ping_to_user(state, &token)
+                    }
+                    UserState::Disconnected => self,
+                }
+            }
         }
     }
 }

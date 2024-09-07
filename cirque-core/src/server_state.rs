@@ -292,6 +292,21 @@ impl ServerState {
         UserState::Registering(user_state)
     }
 
+    pub(crate) fn send_ping_to_ruser(
+        &self,
+        user_state: RegisteringState,
+        token: &[u8],
+    ) -> UserState {
+        let sv = self.0.read();
+
+        let Some(user) = sv.registering_users.get(&user_state.user_id) else {
+            return UserState::Disconnected;
+        };
+        let message = server_to_client::Message::Ping { token };
+        user.send(&message, &sv.message_context);
+        UserState::Registering(user_state)
+    }
+
     pub(crate) fn ruser_sends_unknown_command(
         &self,
         user_state: RegisteringState,
@@ -353,7 +368,7 @@ impl ServerState {
 
         let user = RegisteredUser::from(user);
         sv.user_registers(user);
-        UserState::Registered(RegisteredState { user_id })
+        UserState::Registered(RegisteredState::from_registering_state(user_state))
     }
 
     pub(crate) fn ruser_disconnects_voluntarily(
@@ -1246,6 +1261,17 @@ impl ServerState {
     pub(crate) fn user_pings(&self, user_state: RegisteredState, token: &[u8]) -> UserState {
         let sv = self.0.read();
         sv.user_pings(user_state.user_id, token);
+        UserState::Registered(user_state)
+    }
+
+    pub(crate) fn send_ping_to_user(&self, user_state: RegisteredState, token: &[u8]) -> UserState {
+        let sv = self.0.read();
+
+        let Some(user) = sv.users.get(&user_state.user_id) else {
+            return UserState::Disconnected;
+        };
+        let message = server_to_client::Message::Ping { token };
+        user.send(&message, &sv.message_context);
         UserState::Registered(user_state)
     }
 }
