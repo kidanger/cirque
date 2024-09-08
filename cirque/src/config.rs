@@ -1,6 +1,7 @@
 use std::{
     path::{Path, PathBuf},
     str::FromStr,
+    time::Duration,
 };
 
 use anyhow::Context;
@@ -20,6 +21,7 @@ pub struct Config {
     pub address: String,
     pub tls_config: Option<TlsConfig>,
     pub default_channel_mode: Option<ChannelMode>,
+    pub timeout: Option<Duration>,
 }
 
 #[macro_export]
@@ -60,6 +62,9 @@ impl Config {
         };
         let password = yaml_path!(doc, "password").as_str().map(Into::into);
         let motd = yaml_path!(doc, "motd").as_str().map(Into::into);
+        let timeout = yaml_path!(doc, "timeout")
+            .as_i64()
+            .map(|s| Duration::from_secs(s as u64));
         let default_channel_mode = yaml_path!(doc, "default_channel_mode")
             .as_str()
             .map(TryInto::try_into)
@@ -99,6 +104,7 @@ impl Config {
             address,
             tls_config,
             default_channel_mode,
+            timeout,
         })
     }
 }

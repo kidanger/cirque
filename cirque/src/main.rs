@@ -27,6 +27,7 @@ fn launch_server(
         .map(|m| m.lines().map(|l| l.as_bytes().to_vec()).collect());
     server_state.set_motd(motd);
     server_state.set_default_channel_mode(&config.default_channel_mode.unwrap_or_default());
+    server_state.set_timeout(config.timeout);
 
     log::info!("config loaded");
 
@@ -92,6 +93,7 @@ async fn main() -> Result<(), anyhow::Error> {
                 .as_ref()
                 .map(|motd| vec![motd.as_bytes().to_vec()]),
             config.password.map(|p| p.as_bytes().to_vec()),
+            config.timeout,
         )
     };
 

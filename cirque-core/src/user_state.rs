@@ -205,7 +205,11 @@ impl UserState {
         }
     }
 
-    pub fn check_timeout(self, server_state: &ServerState, timeout: Duration) -> Self {
+    pub fn check_timeout(self, server_state: &ServerState) -> Self {
+        let Some(timeout) = server_state.get_timeout() else {
+            return self;
+        };
+
         #[derive(Debug)]
         enum PingStatus {
             AllGood,

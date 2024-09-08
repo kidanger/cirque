@@ -1,7 +1,7 @@
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use parking_lot::RwLock;
 
@@ -38,6 +38,7 @@ struct ServerStateInner {
     default_channel_mode: ChannelMode,
     message_context: MessageContext,
     messages_per_second_limit: u32,
+    timeout: Option<Duration>,
 }
 
 impl ServerState {
@@ -46,6 +47,7 @@ impl ServerState {
         welcome_config: &WelcomeConfig,
         motd: Option<Vec<Vec<u8>>>,
         password: Option<Vec<u8>>,
+        timeout: Option<Duration>,
     ) -> Self {
         let sv = ServerStateInner {
             users: Default::default(),
@@ -61,6 +63,7 @@ impl ServerState {
             },
             default_channel_mode: Default::default(),
             messages_per_second_limit: 10,
+            timeout,
         };
         ServerState(Arc::new(RwLock::new(sv)))
     }
@@ -200,6 +203,16 @@ impl ServerState {
     pub fn set_default_channel_mode(&self, default_channel_mode: &ChannelMode) {
         let mut sv = self.0.write();
         sv.default_channel_mode = default_channel_mode.clone();
+    }
+
+    pub fn get_timeout(&self) -> Option<Duration> {
+        let sv = self.0.read();
+        sv.timeout
+    }
+
+    pub fn set_timeout(&self, timeout: Option<Duration>) {
+        let mut sv = self.0.write();
+        sv.timeout = timeout;
     }
 }
 
@@ -1685,7 +1698,7 @@ mod tests {
     fn new_server_state() -> ServerState {
         let welcome_config = WelcomeConfig::default();
         let motd = None;
-        ServerState::new("srv", &welcome_config, motd, None)
+        ServerState::new("srv", &welcome_config, motd, None, None)
     }
 
     fn r1(user_state: UserState) -> RegisteringState {

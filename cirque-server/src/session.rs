@@ -58,7 +58,7 @@ impl Session {
                     }
                 }
                 _ = timer.tick() => {
-                    state = state.check_timeout(&server_state, timeout);
+                    state = state.check_timeout(&server_state);
                 }
             }
         }
