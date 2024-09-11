@@ -164,7 +164,7 @@ impl ServerState {
 
         let (user, rx) = RegisteringUser::new();
         let user_id = user.user_id;
-        let state = UserState::Registering(RegisteringState::new(user_id));
+        let state = UserState::Registering(RegisteringState::new(user_id, sv.timeout));
 
         sv.registering_users.insert(user.user_id, user);
 

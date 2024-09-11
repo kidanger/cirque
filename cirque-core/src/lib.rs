@@ -5,6 +5,7 @@ mod error;
 mod nickname;
 mod server_state;
 mod server_to_client;
+mod timeout;
 mod types;
 mod user_state;
 
