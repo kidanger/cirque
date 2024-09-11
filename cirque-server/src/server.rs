@@ -16,13 +16,12 @@ fn handle_client(server_state: ServerState, stream: std::io::Result<AnyStream>) 
         }
 
         Session::init(stream).run(server_state).await;
-        log::info!("end of session for a client");
         anyhow::Ok(())
     };
 
     tokio::spawn(async move {
         if let Err(err) = fut.await {
-            log::error!("error when handling_client: {err:#}");
+            log::error!("session closed with error: {err:#}");
         }
     });
 }
