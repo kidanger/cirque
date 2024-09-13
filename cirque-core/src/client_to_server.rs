@@ -22,101 +22,119 @@ pub(crate) struct ListOption {
 }
 
 #[derive(Debug)]
-pub(crate) enum Message {
+pub(crate) enum Message<'m> {
     Cap,
-    Nick(String),
-    User(String, Vec<u8>),
-    Pass(Vec<u8>),
-    Ping(Vec<u8>),
-    Pong(Vec<u8>),
+    Nick(&'m str),
+    User(&'m str, &'m [u8]),
+    Pass(&'m [u8]),
+    Ping(&'m [u8]),
+    Pong(&'m [u8]),
     Join(Vec<ChannelID>),
     Names(Vec<ChannelID>),
     GetTopic(ChannelID),
     SetTopic(ChannelID, Vec<u8>),
     AskModeChannel(ChannelID),
-    ChangeModeChannel(ChannelID, String, Option<String>),
-    PrivMsg(String, Vec<u8>),
-    Notice(String, Vec<u8>),
+    ChangeModeChannel(ChannelID, &'m str, Option<&'m str>),
+    PrivMsg(&'m str, &'m [u8]),
+    Notice(&'m str, &'m [u8]),
     Part(Vec<ChannelID>, Option<Vec<u8>>),
     List(Option<Vec<String>>, Option<Vec<ListOption>>),
     #[allow(clippy::upper_case_acronyms)]
     MOTD(),
-    Away(Option<Vec<u8>>),
-    Userhost(Vec<String>),
-    Whois(String),
-    Who(String),
+    Away(Option<&'m [u8]>),
+    Userhost(Vec<&'m str>),
+    Whois(&'m str),
+    Who(&'m str),
     Lusers(),
-    Quit(Option<Vec<u8>>),
-    Unknown(String),
+    Quit(Option<&'m [u8]>),
+    Unknown(&'m str),
 }
 
-pub(crate) enum MessageDecodingError {
-    CannotDecodeUtf8 { command: Vec<u8> },
-    NotEnoughParameters { command: String },
-    CannotParseInteger { command: Vec<u8> },
+pub(crate) enum MessageDecodingError<'m> {
+    CannotDecodeUtf8 { command: &'m [u8] },
+    NotEnoughParameters { command: &'m str },
+    CannotParseInteger { command: &'m [u8] },
     NoNicknameGiven {},
     NoTextToSend {},
-    NoRecipient { command: String },
+    NoRecipient { command: &'m str },
     SilentError {},
 }
 
-impl TryFrom<&cirque_parser::Message<'_>> for Message {
-    type Error = MessageDecodingError;
+impl<'m> TryFrom<cirque_parser::Message<'m>> for Message<'m> {
+    type Error = MessageDecodingError<'m>;
 
-    fn try_from(message: &cirque_parser::Message<'_>) -> Result<Self, Self::Error> {
-        let str = |s: Vec<u8>| -> Result<String, MessageDecodingError> {
+    fn try_from(message: cirque_parser::Message<'m>) -> Result<Self, Self::Error> {
+        let str = |s: Vec<u8>| -> Result<String, MessageDecodingError<'m>> {
             String::from_utf8(s).map_err(|_| MessageDecodingError::CannotDecodeUtf8 {
-                command: message.command().to_vec(),
+                command: message.command(),
             })
         };
-        let opt = |opt: Option<Vec<u8>>| -> Result<Vec<u8>, MessageDecodingError> {
-            opt.ok_or(MessageDecodingError::NotEnoughParameters {
-                command: str(message.command().to_vec())?,
+        fn str2<'a, 'm>(
+            command: &'m str,
+            s: &'a [u8],
+        ) -> Result<&'a str, MessageDecodingError<'m>> {
+            std::str::from_utf8(s).map_err(|_| MessageDecodingError::CannotDecodeUtf8 {
+                command: command.as_bytes(),
             })
-        };
+        }
+        fn opt2<'m, 'a: 'm>(
+            command: &'a str,
+            opt: Option<&'a [u8]>,
+        ) -> Result<&'a [u8], MessageDecodingError<'m>> {
+            opt.ok_or(MessageDecodingError::NotEnoughParameters { command })
+        }
+        fn optstr<'m, 'a: 'm>(
+            command: &'a str,
+            opt: Option<&'a [u8]>,
+        ) -> Result<&'a str, MessageDecodingError<'m>> {
+            let otp = opt
+                .map(|s| std::str::from_utf8(s))
+                .transpose()
+                .map_err(|_| MessageDecodingError::CannotDecodeUtf8 {
+                    command: command.as_bytes(),
+                })?;
+            otp.ok_or(MessageDecodingError::NotEnoughParameters { command })
+        }
+
         let params = message.parameters();
-        let message = match message.command() {
-            b"CAP" => Message::Cap,
-            b"NICK" => {
+        let command = message.command();
+        let command = std::str::from_utf8(command)
+            .map_err(|_| MessageDecodingError::CannotDecodeUtf8 { command })?;
+
+        let message = match command {
+            "CAP" => Message::Cap,
+            "NICK" => {
                 let nick = message
-                    .first_parameter_as_vec()
+                    .first_parameter()
                     .ok_or(MessageDecodingError::NoNicknameGiven {})?;
-                let nick = str(nick)?;
+                let nick = str2(command, nick)?;
                 if nick.is_empty() {
                     return Err(MessageDecodingError::NoNicknameGiven {});
                 }
                 Message::Nick(nick)
             }
-            b"USER" => {
-                let user = str(opt(message.first_parameter_as_vec())?)?;
-                let Some(realname) = params.get(3).map(|p| p.to_vec()) else {
-                    return Err(MessageDecodingError::NotEnoughParameters {
-                        command: str(message.command().to_vec())?,
-                    });
+            "USER" => {
+                let user = optstr(command, message.first_parameter())?;
+                let Some(realname) = params.get(3) else {
+                    return Err(MessageDecodingError::NotEnoughParameters { command });
                 };
                 if user.is_empty() || realname.is_empty() {
-                    return Err(MessageDecodingError::NotEnoughParameters {
-                        command: str(message.command().to_vec())?,
-                    });
+                    return Err(MessageDecodingError::NotEnoughParameters { command });
                 }
                 Message::User(user, realname)
             }
-            b"PASS" => {
-                let pass = message.first_parameter_as_vec().ok_or(
-                    MessageDecodingError::NotEnoughParameters {
-                        command: str(message.command().to_vec())?,
-                    },
-                )?;
+            "PASS" => {
+                let pass = message
+                    .first_parameter()
+                    .ok_or(MessageDecodingError::NotEnoughParameters { command })?;
                 Message::Pass(pass)
             }
-            b"PING" => Message::Ping(opt(message.first_parameter_as_vec())?),
-            b"PONG" => Message::Pong(opt(message.first_parameter_as_vec())?),
-            b"JOIN" => {
+            "PING" => Message::Ping(opt2(command, message.first_parameter())?),
+            "PONG" => Message::Pong(opt2(command, message.first_parameter())?),
+            "JOIN" => {
                 let channels = message
                     .first_parameter()
-                    .ok_or(MessageDecodingError::NotEnoughParameters {
-                        command: str(message.command().to_vec())?,
-                    })?
+                    .ok_or(MessageDecodingError::NotEnoughParameters { command })?
                     .split(|&c| c == b',')
                     .flat_map(|s| str(s.to_owned()))
                     .map(|mut s| {
@@ -126,12 +144,10 @@ impl TryFrom<&cirque_parser::Message<'_>> for Message {
                     .collect::<Vec<_>>();
                 Message::Join(channels)
             }
-            b"NAMES" => {
+            "NAMES" => {
                 let channels = message
                     .first_parameter()
-                    .ok_or(MessageDecodingError::NotEnoughParameters {
-                        command: str(message.command().to_vec())?,
-                    })?
+                    .ok_or(MessageDecodingError::NotEnoughParameters { command })?
                     .split(|&c| c == b',')
                     .flat_map(|s| str(s.to_owned()))
                     .map(|mut s| {
@@ -141,8 +157,9 @@ impl TryFrom<&cirque_parser::Message<'_>> for Message {
                     .collect::<Vec<_>>();
                 Message::Names(channels)
             }
-            b"TOPIC" => {
-                let mut target = str(opt(message.first_parameter_as_vec())?)?;
+            "TOPIC" => {
+                let target = optstr(command, message.first_parameter())?;
+                let mut target = target.to_string();
                 target.make_ascii_lowercase();
                 match params.get(1) {
                     Some(content) => {
@@ -152,66 +169,48 @@ impl TryFrom<&cirque_parser::Message<'_>> for Message {
                     None => Message::GetTopic(target),
                 }
             }
-            b"MODE" => {
-                let mut target = str(opt(message.first_parameter_as_vec())?)?;
+            "MODE" => {
+                let target = optstr(command, message.first_parameter())?;
+                let mut target = target.to_string();
 
                 // for now we will assume that the target is a channel
                 if !target.starts_with('#') {
-                    return Err(MessageDecodingError::NoRecipient {
-                        command: str(message.command().into())?,
-                    });
+                    return Err(MessageDecodingError::NoRecipient { command });
                 }
 
                 target.make_ascii_lowercase();
                 if let Some(change) = params.get(1) {
                     let param = if let Some(param) = params.get(2) {
-                        Some(str(param.to_vec())?)
+                        Some(str2(command, param)?)
                     } else {
                         None
                     };
-                    let modechar = str(change.to_vec())?;
+                    let modechar = str2(command, change)?;
                     Message::ChangeModeChannel(target, modechar, param)
                 } else {
                     Message::AskModeChannel(target)
                 }
             }
-            b"PRIVMSG" => {
-                let target =
-                    message
-                        .first_parameter_as_vec()
-                        .ok_or(MessageDecodingError::NoRecipient {
-                            command: str(message.command().to_vec())?,
-                        })?;
-                let mut target = str(target)?;
-                if target.starts_with('#') {
-                    target.make_ascii_lowercase();
-                }
-                let content = params
-                    .get(1)
-                    .ok_or(MessageDecodingError::NoTextToSend {})?
-                    .to_vec();
+            "PRIVMSG" => {
+                let target = message
+                    .first_parameter()
+                    .ok_or(MessageDecodingError::NoRecipient { command })?;
+                let target = str2(command, target)?;
+                let content = params.get(1).ok_or(MessageDecodingError::NoTextToSend {})?;
                 Message::PrivMsg(target, content)
             }
-            b"NOTICE" => {
+            "NOTICE" => {
                 let target = message
-                    .first_parameter_as_vec()
+                    .first_parameter()
                     .ok_or(MessageDecodingError::SilentError {})?;
-                let mut target = str(target)?;
-                if target.starts_with('#') {
-                    target.make_ascii_lowercase();
-                }
-                let content = params
-                    .get(1)
-                    .ok_or(MessageDecodingError::SilentError {})?
-                    .to_vec();
+                let target = str2(command, target)?;
+                let content = params.get(1).ok_or(MessageDecodingError::SilentError {})?;
                 Message::Notice(target, content)
             }
-            b"PART" => {
+            "PART" => {
                 let channels = message
                     .first_parameter()
-                    .ok_or(MessageDecodingError::NotEnoughParameters {
-                        command: str(message.command().to_vec())?,
-                    })?
+                    .ok_or(MessageDecodingError::NotEnoughParameters { command })?
                     .split(|&c| c == b',')
                     .flat_map(|s| String::from_utf8(s.to_owned()))
                     .map(|mut s| {
@@ -222,7 +221,7 @@ impl TryFrom<&cirque_parser::Message<'_>> for Message {
                 let reason = params.get(1).map(|e| e.to_vec());
                 Message::Part(channels, reason)
             }
-            b"LIST" => {
+            "LIST" => {
                 let (channels, start_index) =
                     if let Some(first_parameter) = message.first_parameter() {
                         let chans = first_parameter
@@ -252,9 +251,7 @@ impl TryFrom<&cirque_parser::Message<'_>> for Message {
 
                     let mut index = param_index;
                     let Some(option) = option.first() else {
-                        return Err(MessageDecodingError::NotEnoughParameters {
-                            command: str(message.command().to_vec())?,
-                        });
+                        return Err(MessageDecodingError::NotEnoughParameters { command });
                     };
                     if option.is_ascii() {
                         list_option.filter = match option {
@@ -262,9 +259,7 @@ impl TryFrom<&cirque_parser::Message<'_>> for Message {
                             b'U' => ListFilter::UserNumber,
                             b'T' => ListFilter::TopicUpdate,
                             _ => {
-                                return Err(MessageDecodingError::NotEnoughParameters {
-                                    command: str(message.command().to_vec())?,
-                                });
+                                return Err(MessageDecodingError::NotEnoughParameters { command });
                             }
                         };
                         index += 1;
@@ -275,21 +270,17 @@ impl TryFrom<&cirque_parser::Message<'_>> for Message {
                         list_option.operation = match *operation {
                             b"<" => ListOperation::Inf,
                             b">" => ListOperation::Sup,
-                            _ => {
-                                return Err(MessageDecodingError::NotEnoughParameters {
-                                    command: str(message.command().to_vec())?,
-                                })
-                            }
+                            _ => return Err(MessageDecodingError::NotEnoughParameters { command }),
                         };
                         index += 1;
                     }
 
                     let number = message.parameters().get(param_index + index);
                     if let Some(number) = number {
-                        let count = str(number.to_vec())?;
+                        let count = str2(command, number)?;
                         let count = count.parse::<u64>().map_err(|_| {
                             MessageDecodingError::CannotParseInteger {
-                                command: message.command().to_vec(),
+                                command: command.as_bytes(),
                             }
                         })?;
                         list_option.number = count;
@@ -305,56 +296,54 @@ impl TryFrom<&cirque_parser::Message<'_>> for Message {
                     },
                 )
             }
-            b"MOTD" => {
+            "MOTD" => {
                 // don't parse the "server" argument, we don't support multi-server setups
                 Message::MOTD()
             }
-            b"AWAY" => {
-                let away_message = message.first_parameter_as_vec().and_then(|m| {
-                    if m.is_empty() {
-                        None
-                    } else {
-                        Some(m)
-                    }
-                });
+            "AWAY" => {
+                let away_message =
+                    message.first_parameter().and_then(
+                        |m| {
+                            if m.is_empty() {
+                                None
+                            } else {
+                                Some(m)
+                            }
+                        },
+                    );
                 Message::Away(away_message)
             }
-            b"USERHOST" => {
+            "USERHOST" => {
                 // up-to five nicknames, in separate parameters
                 // the first one is mandatory
                 if params.is_empty() {
-                    return Err(MessageDecodingError::NotEnoughParameters {
-                        command: str(message.command().to_vec())?,
-                    });
+                    return Err(MessageDecodingError::NotEnoughParameters { command });
                 }
                 let mut nicknames = vec![];
                 for p in params.iter().take(5) {
-                    let nick = str(p.to_vec())?;
+                    let nick = str2(command, p)?;
                     nicknames.push(nick);
                 }
                 Message::Userhost(nicknames)
             }
-            b"WHOIS" => {
+            "WHOIS" => {
                 let nickname = if let Some(p) = params.get(1) {
-                    str(p.to_vec())?
+                    str2(command, p)?
                 } else {
-                    str(opt(message.first_parameter_as_vec())?)?
+                    optstr(command, message.first_parameter())?
                 };
                 Message::Whois(nickname)
             }
-            b"WHO" => {
-                let mask = str(opt(message.first_parameter_as_vec())?)?;
+            "WHO" => {
+                let mask = optstr(command, message.first_parameter())?;
                 Message::Who(mask)
             }
-            b"LUSERS" => Message::Lusers(),
-            b"QUIT" => {
-                let reason = message.first_parameter_as_vec();
+            "LUSERS" => Message::Lusers(),
+            "QUIT" => {
+                let reason = message.first_parameter();
                 Message::Quit(reason)
             }
-            cmd => {
-                let cmd = str(cmd.to_vec())?;
-                Message::Unknown(cmd)
-            }
+            command => Message::Unknown(command),
         };
         Ok(message)
     }

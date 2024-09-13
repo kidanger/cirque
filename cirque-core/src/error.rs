@@ -79,32 +79,36 @@ impl ServerStateError {
     }
 
     pub(crate) fn from_decoding_error_with_client(
-        err: MessageDecodingError,
+        err: MessageDecodingError<'_>,
         client: String,
     ) -> Option<ServerStateError> {
         let err = match err {
             MessageDecodingError::CannotDecodeUtf8 { command } => ServerStateError::UnknownError {
                 client,
-                command,
-                info: "Cannot decode utf8".to_string(),
+                command: command.into(),
+                info: "Cannot decode utf8".into(),
             },
             MessageDecodingError::NotEnoughParameters { command } => {
-                ServerStateError::NeedMoreParams { client, command }
+                ServerStateError::NeedMoreParams {
+                    client,
+                    command: command.into(),
+                }
             }
             MessageDecodingError::CannotParseInteger { command } => {
                 ServerStateError::UnknownError {
                     client,
-                    command,
-                    info: "Cannot parse integer".to_string(),
+                    command: command.into(),
+                    info: "Cannot parse integer".into(),
                 }
             }
             MessageDecodingError::NoNicknameGiven {} => {
                 ServerStateError::NoNicknameGiven { client }
             }
             MessageDecodingError::NoTextToSend {} => ServerStateError::NoTextToSend { client },
-            MessageDecodingError::NoRecipient { command } => {
-                ServerStateError::NoRecipient { client, command }
-            }
+            MessageDecodingError::NoRecipient { command } => ServerStateError::NoRecipient {
+                client,
+                command: command.into(),
+            },
             MessageDecodingError::SilentError {} => return None,
         };
         Some(err)

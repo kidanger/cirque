@@ -221,7 +221,7 @@ impl ServerState {
     pub(crate) fn ruser_sends_invalid_message(
         &self,
         user_state: RegisteringState,
-        error: MessageDecodingError,
+        error: MessageDecodingError<'_>,
     ) -> UserState {
         let sv = self.0.read();
 
@@ -850,14 +850,14 @@ impl ServerStateInner {
             });
         };
 
-        let message = server_to_client::Message::PrivMsg {
-            from_user: &user.fullspec(),
-            target,
-            content,
-        };
-
         match obj {
-            LookupResult::Channel(_, channel) => {
+            LookupResult::Channel(channel_name, channel) => {
+                let message = server_to_client::Message::PrivMsg {
+                    from_user: &user.fullspec(),
+                    target: channel_name,
+                    content,
+                };
+
                 channel.ensure_user_can_send_message(user, target)?;
 
                 channel
@@ -868,7 +868,13 @@ impl ServerStateInner {
                     .for_each(|u| u.send(&message, &self.message_context));
             }
             LookupResult::RegisteredUser(target_user) => {
+                let message = server_to_client::Message::PrivMsg {
+                    from_user: &user.fullspec(),
+                    target,
+                    content,
+                };
                 target_user.send(&message, &self.message_context);
+
                 if let Some(away_message) = &target_user.away_message {
                     let message = server_to_client::Message::RplAway {
                         client: &user.nickname,
@@ -916,18 +922,18 @@ impl ServerStateInner {
             return;
         };
 
-        let message = server_to_client::Message::Notice {
-            from_user: &user.fullspec(),
-            target,
-            content,
-        };
-
         match obj {
-            LookupResult::Channel(_, channel) => {
+            LookupResult::Channel(channel_name, channel) => {
                 if channel.ensure_user_can_send_message(user, target).is_err() {
                     // NOTICE shouldn't receive an error
                     return;
                 }
+
+                let message = server_to_client::Message::PrivMsg {
+                    from_user: &user.fullspec(),
+                    target: channel_name,
+                    content,
+                };
 
                 channel
                     .users
@@ -937,6 +943,11 @@ impl ServerStateInner {
                     .for_each(|u| u.send(&message, &self.message_context));
             }
             LookupResult::RegisteredUser(target_user) => {
+                let message = server_to_client::Message::Notice {
+                    from_user: &user.fullspec(),
+                    target,
+                    content,
+                };
                 target_user.send(&message, &self.message_context);
             }
         }
@@ -1328,7 +1339,7 @@ impl ServerState {
     pub(crate) fn user_sends_invalid_message(
         &self,
         user_state: RegisteredState,
-        error: MessageDecodingError,
+        error: MessageDecodingError<'_>,
     ) -> UserState {
         let sv = self.0.read();
         sv.user_sends_invalid_message(user_state.user_id, error);
@@ -1337,7 +1348,7 @@ impl ServerState {
 }
 
 impl ServerStateInner {
-    fn user_sends_invalid_message(&self, user_id: UserID, error: MessageDecodingError) {
+    fn user_sends_invalid_message(&self, user_id: UserID, error: MessageDecodingError<'_>) {
         let Some(user) = self.users.get(&user_id) else {
             return; // internal error
         };
@@ -1498,7 +1509,7 @@ impl ServerState {
     pub(crate) fn user_asks_userhosts(
         &self,
         user_state: RegisteredState,
-        nicknames: &[String],
+        nicknames: &[&str],
     ) -> UserState {
         let sv = self.0.read();
         sv.user_asks_userhosts(user_state.user_id, nicknames);
@@ -1507,7 +1518,7 @@ impl ServerState {
 }
 
 impl ServerStateInner {
-    fn user_asks_userhosts(&self, user_id: UserID, nicknames: &[String]) {
+    fn user_asks_userhosts(&self, user_id: UserID, nicknames: &[&str]) {
         let Some(user) = self.users.get(&user_id) else {
             return; // internal error
         };
