@@ -15,8 +15,6 @@ impl UserID {
     }
 }
 
-pub type ChannelID = String;
-
 #[derive(Debug)]
 pub struct RegisteredUser {
     pub(crate) user_id: UserID,

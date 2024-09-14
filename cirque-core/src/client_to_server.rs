@@ -1,5 +1,3 @@
-use crate::types::ChannelID;
-
 #[derive(Debug, Default, PartialEq)]
 pub(crate) enum ListFilter {
     ChannelCreation,
@@ -29,15 +27,15 @@ pub(crate) enum Message<'m> {
     Pass(&'m [u8]),
     Ping(&'m [u8]),
     Pong(&'m [u8]),
-    Join(Vec<ChannelID>),
-    Names(Vec<ChannelID>),
-    GetTopic(ChannelID),
-    SetTopic(ChannelID, Vec<u8>),
-    AskModeChannel(ChannelID),
-    ChangeModeChannel(ChannelID, &'m str, Option<&'m str>),
+    Join(Vec<String>),
+    Names(Vec<String>),
+    GetTopic(String),
+    SetTopic(String, Vec<u8>),
+    AskModeChannel(String),
+    ChangeModeChannel(String, &'m str, Option<&'m str>),
     PrivMsg(&'m str, &'m [u8]),
     Notice(&'m str, &'m [u8]),
-    Part(Vec<ChannelID>, Option<Vec<u8>>),
+    Part(Vec<String>, Option<Vec<u8>>),
     List(Option<Vec<String>>, Option<Vec<ListOption>>),
     #[allow(clippy::upper_case_acronyms)]
     MOTD(),

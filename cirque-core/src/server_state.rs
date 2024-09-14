@@ -17,18 +17,83 @@ use crate::types::{
 };
 use crate::user_state::{RegisteredState, RegisteringState, UserState};
 
-#[derive(Clone)]
-pub struct ServerState(Arc<RwLock<ServerStateInner>>);
-
 enum LookupResult<'r> {
-    Channel(&'r String, &'r Channel),
+    Channel(&'r ChannelID, &'r Channel),
     RegisteredUser(&'r RegisteredUser),
 }
+
+#[derive(Eq)]
+struct ChannelID(String);
+
+impl PartialEq for ChannelID {
+    fn eq(&self, other: &Self) -> bool {
+        let me = BorrowedChannelID::new(self);
+        let other = BorrowedChannelID::new(other);
+        me.eq(other)
+    }
+}
+
+impl std::hash::Hash for ChannelID {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        BorrowedChannelID::new(self).hash(state)
+    }
+}
+
+impl std::borrow::Borrow<BorrowedChannelID> for ChannelID {
+    fn borrow(&self) -> &BorrowedChannelID {
+        BorrowedChannelID::new(self)
+    }
+}
+
+impl AsRef<str> for ChannelID {
+    fn as_ref(&self) -> &str {
+        self.0.as_ref()
+    }
+}
+
+impl std::fmt::Display for ChannelID {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+#[derive(Eq)]
+#[repr(transparent)]
+struct BorrowedChannelID(str);
+
+impl BorrowedChannelID {
+    fn new<'a>(value: impl AsRef<str>) -> &'a Self {
+        let str = value.as_ref();
+        // SAFETY: This is a `newtype`-like transformation. `repr(transparent)` ensures
+        // that this is safe and correct.
+        unsafe { core::mem::transmute(str) }
+    }
+}
+
+impl PartialEq for BorrowedChannelID {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.eq_ignore_ascii_case(&other.0)
+    }
+}
+
+impl std::hash::Hash for BorrowedChannelID {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.0
+            .bytes()
+            .map(|b| b.to_ascii_lowercase())
+            .for_each(|byte| {
+                state.write_u8(byte);
+            });
+    }
+}
+
+#[derive(Clone)]
+pub struct ServerState(Arc<RwLock<ServerStateInner>>);
 
 struct ServerStateInner {
     users: HashMap<UserID, RegisteredUser>,
     registering_users: HashMap<UserID, RegisteringUser>,
-    channels: HashMap<String, Channel>,
+    channels: HashMap<ChannelID, Channel>,
 
     // related to config:
     server_name: String,
@@ -86,7 +151,7 @@ impl ServerStateInner {
         let maybe_channel = self
             .channels
             .iter()
-            .find(|(name, _)| name.eq_ignore_ascii_case(target))
+            .find(|(name, _)| name.as_ref().eq_ignore_ascii_case(target))
             .map(|(name, channel)| LookupResult::Channel(name, channel));
         let maybe_user = self
             .users
@@ -478,7 +543,10 @@ impl ServerStateInner {
         };
         validate_channel_name(user, channel_name)?;
 
-        let channel = self.channels.entry(channel_name.to_owned()).or_default();
+        let channel = self
+            .channels
+            .entry(ChannelID(channel_name.to_string()))
+            .or_default();
 
         if channel.users.contains_key(&user_id) {
             return Ok(());
@@ -561,7 +629,8 @@ impl ServerStateInner {
             return Ok(()); // internal error
         };
 
-        let Some(channel) = self.channels.get(channel_name) else {
+        let channel_id = BorrowedChannelID::new(channel_name);
+        let Some(channel) = self.channels.get(channel_id) else {
             // if the channel is invalid or does not exist, returns RPL_ENDOFNAMES (366)
             let message = server_to_client::Message::EndOfNames {
                 client: &user.nickname,
@@ -633,7 +702,8 @@ impl ServerStateInner {
         };
         validate_channel_name(user, channel_name)?;
 
-        let Some(channel) = self.channels.get_mut(channel_name) else {
+        let channel_id = BorrowedChannelID::new(channel_name);
+        let Some(channel) = self.channels.get_mut(channel_id) else {
             return Err(ServerStateError::NoSuchChannel {
                 client: user.nickname.clone(),
                 channel: channel_name.to_string(),
@@ -662,7 +732,7 @@ impl ServerStateInner {
         channel.users.remove(&user_id);
 
         if channel.users.is_empty() {
-            self.channels.remove(channel_name);
+            self.channels.remove(channel_id);
         }
 
         Ok(())
@@ -854,7 +924,7 @@ impl ServerStateInner {
             LookupResult::Channel(channel_name, channel) => {
                 let message = server_to_client::Message::PrivMsg {
                     from_user: &user.fullspec(),
-                    target: channel_name,
+                    target: channel_name.as_ref(),
                     content,
                 };
 
@@ -931,7 +1001,7 @@ impl ServerStateInner {
 
                 let message = server_to_client::Message::PrivMsg {
                     from_user: &user.fullspec(),
-                    target: channel_name,
+                    target: channel_name.as_ref(),
                     content,
                 };
 
@@ -980,7 +1050,8 @@ impl ServerStateInner {
         };
         validate_channel_name(user, channel_name)?;
 
-        let Some(channel) = self.channels.get(channel_name) else {
+        let channel_id = BorrowedChannelID::new(channel_name);
+        let Some(channel) = self.channels.get(channel_id) else {
             return Err(ServerStateError::NoSuchChannel {
                 client: user.nickname.clone(),
                 channel: channel_name.to_string(),
@@ -1030,7 +1101,8 @@ impl ServerStateInner {
         };
         validate_channel_name(user, channel_name)?;
 
-        let Some(channel) = self.channels.get_mut(channel_name) else {
+        let channel_id = BorrowedChannelID::new(channel_name);
+        let Some(channel) = self.channels.get_mut(channel_id) else {
             return Err(ServerStateError::NoSuchChannel {
                 client: user.nickname.clone(),
                 channel: channel_name.to_string(),
@@ -1141,7 +1213,7 @@ impl ServerState {
         &self,
         user_state: RegisteredState,
         channel_name: &str,
-        content: &Vec<u8>,
+        content: &[u8],
     ) -> UserState {
         let mut sv = self.0.write();
 
@@ -1159,22 +1231,23 @@ impl ServerStateInner {
         &mut self,
         user_id: UserID,
         channel_name: &str,
-        content: &Vec<u8>,
+        content: &[u8],
     ) -> Result<(), ServerStateError> {
         let Some(user) = self.users.get(&user_id) else {
             return Ok(()); // internal error
         };
 
-        let Some(channel) = self.channels.get_mut(channel_name) else {
+        let channel_id = BorrowedChannelID::new(channel_name);
+        let Some(channel) = self.channels.get_mut(channel_id) else {
             return Err(ServerStateError::NoSuchChannel {
                 client: user.nickname.clone(),
-                channel: channel_name.into(),
+                channel: channel_name.to_string(),
             });
         };
 
         channel.ensure_user_can_set_topic(user, channel_name)?;
 
-        channel.topic.content.clone_from(content);
+        channel.topic.content = content.to_vec();
         channel.topic.ts = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
@@ -1222,7 +1295,8 @@ impl ServerStateInner {
             return Ok(()); // internal error
         };
 
-        let Some(channel) = self.channels.get(channel_name) else {
+        let channel_id = BorrowedChannelID::new(channel_name);
+        let Some(channel) = self.channels.get(channel_id) else {
             return Err(ServerStateError::NoSuchChannel {
                 client: user.nickname.clone(),
                 channel: channel_name.into(),
@@ -1427,7 +1501,9 @@ impl ServerStateInner {
             list_channels
                 .into_iter()
                 .filter_map(|channel_name| {
-                    self.channels.get(&channel_name).map(|c| (channel_name, c))
+                    self.channels
+                        .get(BorrowedChannelID::new(&channel_name))
+                        .map(|c| (channel_name, c))
                 })
                 .collect::<Vec<_>>()
         } else {
@@ -1606,7 +1682,7 @@ impl ServerStateInner {
                         return; // internal error
                     };
                     let reply = WhoReply {
-                        channel: Some(channel_name),
+                        channel: Some(channel_name.as_ref()),
                         channel_user_mode: Some(user_mode),
                         nickname: &user.nickname,
                         is_op: false,
