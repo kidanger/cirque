@@ -150,8 +150,7 @@ impl ServerStateInner {
     fn lookup_target<'r>(&'r self, target: &str) -> Option<LookupResult<'r>> {
         let maybe_channel = self
             .channels
-            .iter()
-            .find(|(name, _)| name.as_ref().eq_ignore_ascii_case(target))
+            .get_key_value(BorrowedChannelID::new(target))
             .map(|(name, channel)| LookupResult::Channel(name, channel));
         let maybe_user = self
             .users
