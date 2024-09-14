@@ -517,12 +517,12 @@ impl ServerState {
     pub(crate) fn user_joins_channels(
         &self,
         user_state: RegisteredState,
-        channels: &[String],
+        channels: &[&str],
     ) -> UserState {
         let mut sv = self.0.write();
 
         let user_id = user_state.user_id;
-        for channel in channels {
+        for &channel in channels {
             if let Err(err) = sv.user_joins_channel(user_id, channel) {
                 sv.send_error(user_id, err);
             }
@@ -604,12 +604,12 @@ impl ServerState {
     pub(crate) fn user_names_channels(
         &self,
         user_state: RegisteredState,
-        channels: &[String],
+        channels: &[&str],
     ) -> UserState {
         let sv = self.0.read();
 
         let user_id = user_state.user_id;
-        for channel in channels {
+        for &channel in channels {
             if let Err(err) = sv.user_names_channel(user_id, channel) {
                 sv.send_error(user_id, err);
             }
@@ -674,13 +674,13 @@ impl ServerState {
     pub(crate) fn user_leaves_channels(
         &self,
         user_state: RegisteredState,
-        channels: &[String],
+        channels: &[&str],
         reason: Option<&[u8]>,
     ) -> UserState {
         let mut sv = self.0.write();
 
         let user_id = user_state.user_id;
-        for channel in channels {
+        for &channel in channels {
             if let Err(err) = sv.user_leaves_channel(user_id, channel, reason) {
                 sv.send_error(user_id, err)
             }

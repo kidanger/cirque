@@ -101,13 +101,13 @@ impl RegisteredState {
             }
             client_to_server::Message::Nick(nick) => server_state.user_changes_nick(self, nick),
             client_to_server::Message::Part(channels, reason) => {
-                server_state.user_leaves_channels(self, &channels, reason.as_deref())
+                server_state.user_leaves_channels(self, &channels, reason)
             }
             client_to_server::Message::AskModeChannel(channel) => {
-                server_state.user_asks_channel_mode(self, &channel)
+                server_state.user_asks_channel_mode(self, channel)
             }
             client_to_server::Message::ChangeModeChannel(channel, modechar, param) => {
-                server_state.user_changes_channel_mode(self, &channel, modechar, param)
+                server_state.user_changes_channel_mode(self, channel, modechar, param)
             }
             client_to_server::Message::Ping(token) => server_state.user_pings(self, token),
             client_to_server::Message::Pong(token) => {
@@ -124,10 +124,10 @@ impl RegisteredState {
                 server_state.user_notices_target(self, target, content)
             }
             client_to_server::Message::SetTopic(target, content) => {
-                server_state.user_sets_topic(self, &target, &content)
+                server_state.user_sets_topic(self, target, content)
             }
             client_to_server::Message::GetTopic(target) => {
-                server_state.user_wants_topic(self, &target)
+                server_state.user_wants_topic(self, target)
             }
             client_to_server::Message::MOTD() => server_state.user_wants_motd(self),
             client_to_server::Message::Away(away_message) => {
