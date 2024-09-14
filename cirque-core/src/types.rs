@@ -342,8 +342,16 @@ impl Channel {
             });
         }
 
-        let user_mode = user_mode.cloned().unwrap_or_default();
-        if self.mode.is_moderated() && !(user_mode.is_op() || user_mode.is_voice()) {
+        let can_talk = {
+            if !self.mode.is_moderated() {
+                true
+            } else if let Some(user_mode) = user_mode {
+                user_mode.is_op() || user_mode.is_voice()
+            } else {
+                false
+            }
+        };
+        if !can_talk {
             return Err(ServerStateError::CannotSendToChan {
                 client: user.nickname.to_string(),
                 channel: channel_name.to_string(),
