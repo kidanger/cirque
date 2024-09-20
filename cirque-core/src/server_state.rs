@@ -480,7 +480,7 @@ impl ServerState {
     pub fn ruser_disconnects_suddently(&self, user_state: RegisteringState) -> UserState {
         let mut sv = self.0.write();
 
-        let reason = b"Disconnected suddently.";
+        let reason = b"connection closed";
 
         let user_id = user_state.user_id;
         let Entry::Occupied(user) = sv.registering_users.entry(user_id) else {
@@ -802,7 +802,7 @@ impl ServerStateInner {
         let Some(user) = self.users.get(&user_id) else {
             return; // internal error
         };
-        let reason = b"Disconnected suddently.";
+        let reason = b"connection closed";
 
         let message = server_to_client::Message::Quit {
             user_fullspec: &user.fullspec(),
