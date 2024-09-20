@@ -22,7 +22,9 @@ impl Session {
         let mut message_throttler =
             MessageThrottler::new(server_state.get_messages_per_second_limit());
 
-        let timeout = Duration::from_secs(60);
+        let timeout = server_state
+            .get_timeout()
+            .unwrap_or_else(|| Duration::from_secs(99999));
         let mut timer = tokio::time::interval(timeout.div_f32(4.));
 
         let (mut state, mut rx) = server_state.new_registering_user();
