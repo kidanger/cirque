@@ -63,7 +63,7 @@ impl<'m> MessageWriter<'m> {
 }
 
 /// Owner MUST call validate() after writing in order to send the message to the mailbox.
-#[must_use]
+#[must_use = "You should call OnGoingMessage::validate() to send the message."]
 pub(crate) struct OnGoingMessage<'m, 'w> {
     buf: std::io::Cursor<Box<[u8]>>,
     mailbox: &'m Mailbox,
@@ -83,18 +83,28 @@ impl OnGoingMessage<'_, '_> {
         self
     }
 
-    pub(crate) fn validate(mut self) {
-        // cut at 510 bytes and add new lines
-        // NOTE: this might cut an utf8 character, but this is OK according to the spec
-        // https://modern.ircdocs.horse/#compatibility-with-incorrect-software
-        let pos = self.buf.position().min((IRC_MESSAGE_MAX_SIZE - 2) as u64);
-        self.buf.set_position(pos);
-        let _ = self.buf.write_all(b"\r\n");
+    pub(crate) fn validate(self) {
+        fn is_utf8_char_boundary(c: u8) -> bool {
+            // see u8::is_utf8_char_boundary (private method)
+            (c as i8) >= -0x40
+        }
 
-        // convert into a Vec<u8>
         let len = self.buf.position() as usize;
         let mut buf = self.buf.into_inner().into_vec();
+
+        let len = len.min(
+            // If the buffer is filled at least until 510 bytes,
+            // we cut the message in order to leave space for appending "\r\n".
+            // We find the best place to cut the message, <=510 and avoiding to split an utf8 char.
+            buf.get(..=IRC_MESSAGE_MAX_SIZE - 2)
+                .and_then(|slice| slice.iter().rposition(|&b| is_utf8_char_boundary(b)))
+                .unwrap_or(0),
+        );
+
+        // cut the message and \r\n
         buf.truncate(len);
+        buf.push(b'\r');
+        buf.push(b'\n');
 
         // send
         let _ = self.mailbox.sender.send(buf);
@@ -131,6 +141,16 @@ mod tests {
     }
 
     #[test]
+    fn test_empty_message() {
+        let (mailbox, mut sink) = Mailbox::new();
+        let mut mw = MessageWriter { mailbox: &mailbox };
+        message!(mw, &"");
+        let msg = sink.try_recv().unwrap();
+        assert_eq!(String::from_utf8(msg).unwrap(), "\r\n");
+        sink.try_recv().unwrap_err();
+    }
+
+    #[test]
     fn test_1message() {
         let (mailbox, mut sink) = Mailbox::new();
         let mut mw = MessageWriter { mailbox: &mailbox };
@@ -157,5 +177,130 @@ mod tests {
         sink.try_recv().unwrap_err();
     }
 
-    // TODO: test >=510 messages
+    #[test]
+    fn test_long_message_509() {
+        let (mailbox, mut sink) = Mailbox::new();
+        let mut mw = MessageWriter { mailbox: &mailbox };
+
+        let mut m = mw.new_message();
+        for _ in 0..499 {
+            message_push!(m, b"a");
+        }
+        message_push!(m, b"0123456789");
+        m.validate();
+
+        let msg = sink.try_recv().unwrap();
+        let msg = String::from_utf8(msg).unwrap();
+        assert_eq!(msg.len(), 511);
+        assert!(msg.ends_with("9\r\n"));
+
+        sink.try_recv().unwrap_err();
+    }
+
+    #[test]
+    fn test_long_message_510() {
+        let (mailbox, mut sink) = Mailbox::new();
+        let mut mw = MessageWriter { mailbox: &mailbox };
+
+        let mut m = mw.new_message();
+        for _ in 0..500 {
+            message_push!(m, b"a");
+        }
+        message_push!(m, b"0123456789");
+        m.validate();
+
+        let msg = sink.try_recv().unwrap();
+        let msg = String::from_utf8(msg).unwrap();
+        assert_eq!(msg.len(), 512);
+        assert!(msg.ends_with("9\r\n"));
+
+        sink.try_recv().unwrap_err();
+    }
+
+    #[test]
+    fn test_long_message_511() {
+        let (mailbox, mut sink) = Mailbox::new();
+        let mut mw = MessageWriter { mailbox: &mailbox };
+
+        let mut m = mw.new_message();
+        for _ in 0..501 {
+            message_push!(m, b"a");
+        }
+        message_push!(m, b"0123456789");
+        m.validate();
+
+        let msg = sink.try_recv().unwrap();
+        let msg = String::from_utf8(msg).unwrap();
+        assert_eq!(msg.len(), 512);
+        assert!(msg.ends_with("8\r\n"));
+
+        sink.try_recv().unwrap_err();
+    }
+
+    #[test]
+    fn test_long_message_511_utf8_cut() {
+        let (mailbox, mut sink) = Mailbox::new();
+        let mut mw = MessageWriter { mailbox: &mailbox };
+
+        let mut m = mw.new_message();
+        for _ in 0..499 {
+            message_push!(m, b"a");
+        }
+        message_push!(m, b"0123456789");
+        message_push!(m, b"\xc3\xa9");
+        m.validate();
+        // the message has size 511, but to happen \r\n the last byte has to be removed to
+        // 510. Because removing this last byte would make the utf-8 invalid, instead two bytes get
+        // removed.
+
+        let msg = sink.try_recv().unwrap();
+        let msg = String::from_utf8(msg).unwrap();
+        assert_eq!(msg.len(), 511);
+        assert!(msg.ends_with("9\r\n"));
+
+        sink.try_recv().unwrap_err();
+    }
+    #[test]
+    fn test_long_message_512() {
+        let (mailbox, mut sink) = Mailbox::new();
+        let mut mw = MessageWriter { mailbox: &mailbox };
+
+        let mut m = mw.new_message();
+        for _ in 0..502 {
+            message_push!(m, b"a");
+        }
+        message_push!(m, b"0123456789");
+        m.validate();
+
+        let msg = sink.try_recv().unwrap();
+        let msg = String::from_utf8(msg).unwrap();
+        assert_eq!(msg.len(), 512);
+        assert!(msg.ends_with("7\r\n"));
+
+        sink.try_recv().unwrap_err();
+    }
+
+    #[test]
+    fn test_long_message_512_utf8_cut() {
+        let (mailbox, mut sink) = Mailbox::new();
+        let mut mw = MessageWriter { mailbox: &mailbox };
+
+        let mut m = mw.new_message();
+        for _ in 0..500 {
+            message_push!(m, b"a");
+        }
+        message_push!(m, b"0123456789");
+        message_push!(m, b"\xc3\xa9");
+        m.validate();
+        // the message has size 511, but to happen \r\n the last byte has to be removed to
+        // 511. Because removing this last byte would make the utf-8 invalid, instead two bytes get
+        // removed.
+
+        let msg = sink.try_recv().unwrap();
+        let msg = String::from_utf8(msg).unwrap();
+        assert_eq!(msg.len(), 512);
+        assert!(msg.ends_with("9\r\n"));
+
+        sink.try_recv().unwrap_err();
+    }
 }
