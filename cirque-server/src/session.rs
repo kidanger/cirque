@@ -69,11 +69,14 @@ impl Session {
 
         // handle the disconnection gracefully by sending remaining
         // messages (in case the client asked a QUIT for example)
-        let mut buf = std::io::Cursor::new(Vec::<u8>::new());
-        while let Ok(msg) = rx.try_recv() {
-            let _ = std::io::Write::write_all(&mut buf, &msg);
-        }
-        // TODO: maybe tolerate a timeout to send the last messages and then force quit
-        let _ = self.stream.write_all(&buf.into_inner()).await;
+        let buf = {
+            let mut buf = std::io::Cursor::new(Vec::<u8>::new());
+            while let Ok(msg) = rx.try_recv() {
+                let _ = std::io::Write::write_all(&mut buf, &msg);
+            }
+            buf.into_inner()
+        };
+        // try to send the messages, but don't hang on the client just for theses
+        let _ = tokio::time::timeout(Duration::from_secs(10), self.stream.write_all(&buf)).await;
     }
 }
