@@ -90,11 +90,7 @@ fn consume_line(buf: &mut SliceRingBuffer<u8>) -> Option<&[u8]> {
 
     // compute the length of the line (until the next EOL)
     // if there is no EOL, return None
-    let line_length = buf
-        .iter()
-        .enumerate()
-        .filter_map(|(i, &c)| is_end_of_message(c).then_some(i))
-        .next()?;
+    let line_length = buf.iter().position(|&c| is_end_of_message(c))?;
 
     // move the buffer forward to skip the line
     // SAFETY: 'line_length' is within the buffer's bound
