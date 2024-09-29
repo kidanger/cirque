@@ -1,6 +1,6 @@
 use std::{io::Write, marker::PhantomData};
 
-use tokio::sync::mpsc::{error::TryRecvError, UnboundedReceiver, UnboundedSender};
+use tokio::sync::mpsc::{error::TryRecvError, Permit, Receiver, Sender};
 
 use crate::server_to_client::{self, MessageContext};
 
@@ -10,12 +10,12 @@ pub(crate) type SerializedMessage = Vec<u8>;
 
 #[derive(Debug)]
 pub(crate) struct Mailbox {
-    sender: UnboundedSender<SerializedMessage>,
+    sender: Sender<SerializedMessage>,
 }
 
 impl Mailbox {
-    pub(crate) fn new() -> (Self, MailboxSink) {
-        let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
+    pub(crate) fn new(capacity: usize) -> (Self, MailboxSink) {
+        let (sender, receiver) = tokio::sync::mpsc::channel(capacity);
         (Self { sender }, MailboxSink { receiver })
     }
 
@@ -24,14 +24,18 @@ impl Mailbox {
             return;
         }
 
-        let mut mw = MessageWriter { mailbox: self };
+        let mut mw = self.writer();
         message.write_to(&mut mw, context);
+    }
+
+    fn writer(&self) -> MessageWriter<'_> {
+        MessageWriter { mailbox: self }
     }
 }
 
 #[derive(Debug)]
 pub struct MailboxSink {
-    receiver: UnboundedReceiver<SerializedMessage>,
+    receiver: Receiver<SerializedMessage>,
 }
 
 impl MailboxSink {
@@ -59,14 +63,18 @@ impl<'m> MessageWriter<'m> {
     /// Implementation note: it is not necessary to have a &mut self here,
     /// but it allows to ensure that there are only one OnGoingMessage at a time.
     /// It makes it harder to send IRC messages in the wrong order.
-    pub(crate) fn new_message<'w>(&'w mut self) -> OnGoingMessage<'m, 'w> {
+    ///
+    /// If the mailbox is full, returns None. This allows to skip allocation and buffer preparation
+    /// for nothing, as the message won't be sent anyway.
+    pub(crate) fn new_message<'w>(&'w mut self) -> Option<OnGoingMessage<'m, 'w>> {
+        let permit = self.mailbox.sender.try_reserve().ok()?;
         let buf = vec![0_u8; IRC_MESSAGE_MAX_SIZE].into();
         let buf = std::io::Cursor::new(buf);
-        OnGoingMessage {
+        Some(OnGoingMessage {
             buf,
-            mailbox: self.mailbox,
+            permit,
             phantom: PhantomData,
-        }
+        })
     }
 }
 
@@ -74,7 +82,7 @@ impl<'m> MessageWriter<'m> {
 #[must_use = "You should call OnGoingMessage::validate() to send the message."]
 pub(crate) struct OnGoingMessage<'m, 'w> {
     buf: std::io::Cursor<Box<[u8]>>,
-    mailbox: &'m Mailbox,
+    permit: Permit<'m, SerializedMessage>,
     phantom: PhantomData<&'w mut MessageWriter<'m>>,
 }
 
@@ -115,13 +123,13 @@ impl OnGoingMessage<'_, '_> {
         buf.push(b'\n');
 
         // send
-        let _ = self.mailbox.sender.send(buf);
+        self.permit.send(buf);
     }
 }
 
 macro_rules! message {
     ($s:expr, $($args:expr),*) => {{
-        let mut m = $s.new_message();
+        let mut m = $s.new_message()?;
         $(
             m = m.write($args);
         )*
@@ -139,19 +147,29 @@ macro_rules! message_push {
 
 #[cfg(test)]
 mod tests {
-    use super::{Mailbox, MessageWriter};
+    use super::Mailbox;
+
+    macro_rules! message {
+        ($s:expr, $($args:expr),*) => {{
+            let mut m = $s.new_message().unwrap();
+            $(
+                m = m.write($args);
+            )*
+            m.validate();
+        }}
+    }
 
     #[test]
     fn test_empty() {
-        let (mailbox, mut sink) = Mailbox::new();
-        let _mw = MessageWriter { mailbox: &mailbox };
+        let (mailbox, mut sink) = Mailbox::new(10);
+        let _mw = mailbox.writer();
         sink.try_recv().unwrap_err();
     }
 
     #[test]
     fn test_empty_message() {
-        let (mailbox, mut sink) = Mailbox::new();
-        let mut mw = MessageWriter { mailbox: &mailbox };
+        let (mailbox, mut sink) = Mailbox::new(10);
+        let mut mw = mailbox.writer();
         message!(mw, &"");
         let msg = sink.try_recv().unwrap();
         assert_eq!(String::from_utf8(msg).unwrap(), "\r\n");
@@ -159,9 +177,29 @@ mod tests {
     }
 
     #[test]
+    fn test_drop_message_on_full() {
+        let (mailbox, mut sink) = Mailbox::new(2);
+        let mut mw = mailbox.writer();
+        mw.new_message().unwrap().validate();
+        mw.new_message().unwrap().validate();
+        assert!(mw.new_message().is_none());
+        sink.try_recv().unwrap();
+        sink.try_recv().unwrap();
+        sink.try_recv().unwrap_err();
+
+        // the mailbox still works after reading messages
+        mw.new_message().unwrap().validate();
+        mw.new_message().unwrap().validate();
+        assert!(mw.new_message().is_none());
+        sink.try_recv().unwrap();
+        sink.try_recv().unwrap();
+        sink.try_recv().unwrap_err();
+    }
+
+    #[test]
     fn test_1message() {
-        let (mailbox, mut sink) = Mailbox::new();
-        let mut mw = MessageWriter { mailbox: &mailbox };
+        let (mailbox, mut sink) = Mailbox::new(10);
+        let mut mw = mailbox.writer();
         message!(mw, &"test");
         let msg = sink.try_recv().unwrap();
         assert_eq!(String::from_utf8(msg).unwrap(), "test\r\n");
@@ -170,8 +208,8 @@ mod tests {
 
     #[test]
     fn test_2messages() {
-        let (mailbox, mut sink) = Mailbox::new();
-        let mut mw = MessageWriter { mailbox: &mailbox };
+        let (mailbox, mut sink) = Mailbox::new(10);
+        let mut mw = mailbox.writer();
 
         message!(mw, b"ta", b"2");
         message!(mw, b"toto");
@@ -187,10 +225,10 @@ mod tests {
 
     #[test]
     fn test_long_message_509() {
-        let (mailbox, mut sink) = Mailbox::new();
-        let mut mw = MessageWriter { mailbox: &mailbox };
+        let (mailbox, mut sink) = Mailbox::new(10);
+        let mut mw = mailbox.writer();
 
-        let mut m = mw.new_message();
+        let mut m = mw.new_message().unwrap();
         for _ in 0..499 {
             message_push!(m, b"a");
         }
@@ -207,10 +245,10 @@ mod tests {
 
     #[test]
     fn test_long_message_510() {
-        let (mailbox, mut sink) = Mailbox::new();
-        let mut mw = MessageWriter { mailbox: &mailbox };
+        let (mailbox, mut sink) = Mailbox::new(10);
+        let mut mw = mailbox.writer();
 
-        let mut m = mw.new_message();
+        let mut m = mw.new_message().unwrap();
         for _ in 0..500 {
             message_push!(m, b"a");
         }
@@ -227,10 +265,10 @@ mod tests {
 
     #[test]
     fn test_long_message_511() {
-        let (mailbox, mut sink) = Mailbox::new();
-        let mut mw = MessageWriter { mailbox: &mailbox };
+        let (mailbox, mut sink) = Mailbox::new(10);
+        let mut mw = mailbox.writer();
 
-        let mut m = mw.new_message();
+        let mut m = mw.new_message().unwrap();
         for _ in 0..501 {
             message_push!(m, b"a");
         }
@@ -247,10 +285,10 @@ mod tests {
 
     #[test]
     fn test_long_message_511_utf8_cut() {
-        let (mailbox, mut sink) = Mailbox::new();
-        let mut mw = MessageWriter { mailbox: &mailbox };
+        let (mailbox, mut sink) = Mailbox::new(10);
+        let mut mw = mailbox.writer();
 
-        let mut m = mw.new_message();
+        let mut m = mw.new_message().unwrap();
         for _ in 0..499 {
             message_push!(m, b"a");
         }
@@ -270,10 +308,10 @@ mod tests {
     }
     #[test]
     fn test_long_message_512() {
-        let (mailbox, mut sink) = Mailbox::new();
-        let mut mw = MessageWriter { mailbox: &mailbox };
+        let (mailbox, mut sink) = Mailbox::new(10);
+        let mut mw = mailbox.writer();
 
-        let mut m = mw.new_message();
+        let mut m = mw.new_message().unwrap();
         for _ in 0..502 {
             message_push!(m, b"a");
         }
@@ -290,10 +328,10 @@ mod tests {
 
     #[test]
     fn test_long_message_512_utf8_cut() {
-        let (mailbox, mut sink) = Mailbox::new();
-        let mut mw = MessageWriter { mailbox: &mailbox };
+        let (mailbox, mut sink) = Mailbox::new(10);
+        let mut mw = mailbox.writer();
 
-        let mut m = mw.new_message();
+        let mut m = mw.new_message().unwrap();
         for _ in 0..500 {
             message_push!(m, b"a");
         }

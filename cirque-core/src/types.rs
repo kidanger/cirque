@@ -59,9 +59,9 @@ pub(crate) struct RegisteringUser {
 }
 
 impl RegisteringUser {
-    pub(crate) fn new() -> (Self, MailboxSink) {
+    pub(crate) fn new(mailbox_capacity: usize) -> (Self, MailboxSink) {
         let user_id = UserID::generate();
-        let (mailbox, mailbox_sink) = Mailbox::new();
+        let (mailbox, mailbox_sink) = Mailbox::new(mailbox_capacity);
         let user = Self {
             user_id,
             nickname: None,

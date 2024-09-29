@@ -226,7 +226,8 @@ impl ServerState {
     pub fn new_registering_user(&self) -> (UserState, MailboxSink) {
         let mut sv = self.0.write();
 
-        let (user, rx) = RegisteringUser::new();
+        let mailbox_capacity = 128;
+        let (user, rx) = RegisteringUser::new(mailbox_capacity);
         let user_id = user.user_id;
         let state = UserState::Registering(RegisteringState::new(user_id, sv.timeout));
 

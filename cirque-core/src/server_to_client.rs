@@ -176,7 +176,11 @@ pub(crate) struct MessageContext {
 }
 
 impl Message<'_> {
-    pub(crate) fn write_to(&self, stream: &mut MessageWriter<'_>, context: &MessageContext) {
+    pub(crate) fn write_to(
+        &self,
+        stream: &mut MessageWriter<'_>,
+        context: &MessageContext,
+    ) -> Option<()> {
         let sv = &context.server_name;
         match self {
             Message::Welcome {
@@ -256,7 +260,7 @@ impl Message<'_> {
                     nicknames,
                 } in *names
                 {
-                    let mut m = stream.new_message();
+                    let mut m = stream.new_message()?;
                     message_push!(
                         m,
                         b":",
@@ -381,7 +385,7 @@ impl Message<'_> {
                 modechar,
                 param,
             } => {
-                let mut m = stream.new_message();
+                let mut m = stream.new_message()?;
                 message_push!(m, b":", user_fullspec, b" MODE ", target, b" ", modechar);
                 if let Some(param) = param {
                     message_push!(m, b" ", param);
@@ -393,7 +397,7 @@ impl Message<'_> {
                 channel,
                 mode,
             } => {
-                let mut m = stream.new_message();
+                let mut m = stream.new_message()?;
                 message_push!(m, b":", sv, b" 324 ", client, b" ", channel, b" +");
                 if mode.is_no_external() {
                     m = m.write(b"n");
@@ -556,7 +560,7 @@ impl Message<'_> {
                 channel,
                 reason,
             } => {
-                let mut m = stream.new_message();
+                let mut m = stream.new_message()?;
                 message_push!(m, b":", user_fullspec, b" PART ", channel);
                 if let Some(reason) = reason {
                     message_push!(m, b" :", reason);
@@ -624,7 +628,7 @@ impl Message<'_> {
                 );
             }
             Message::RplUserhost { client, info } => {
-                let mut m = stream.new_message();
+                let mut m = stream.new_message()?;
                 message_push!(m, b":", sv, b" 302 ", client, b" :");
                 for (
                     i,
@@ -750,7 +754,7 @@ impl Message<'_> {
                     realname,
                 } in *replies
                 {
-                    let mut m = stream.new_message();
+                    let mut m = stream.new_message()?;
                     message_push!(m, b":", sv, b" 352 ", client, b" ");
                     if let Some(channel) = channel {
                         message_push!(m, channel);
@@ -804,10 +808,12 @@ impl Message<'_> {
                 message!(stream, b":", sv, b" ERROR :", reason);
             }
             Message::Err(err) => {
-                let mut m = stream.new_message();
+                let mut m = stream.new_message()?;
                 message_push!(m, b":", sv, b" ");
                 err.write_to(m).validate();
             }
         }
+
+        Some(())
     }
 }
