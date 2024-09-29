@@ -718,7 +718,7 @@ impl ServerStateInner {
         }
 
         let message = server_to_client::Message::Part {
-            user_fullspec: &user.fullspec(),
+            user_fullspec: user.fullspec(),
             channel: channel_name,
             reason,
         };
@@ -759,7 +759,7 @@ impl ServerStateInner {
         let reason = reason.unwrap_or(b"Client Quit");
 
         let message = server_to_client::Message::Quit {
-            user_fullspec: &user.fullspec(),
+            user_fullspec: user.fullspec(),
             reason,
         };
         for channel in self.channels.values_mut() {
@@ -806,7 +806,7 @@ impl ServerStateInner {
         let reason = b"connection closed";
 
         let message = server_to_client::Message::Quit {
-            user_fullspec: &user.fullspec(),
+            user_fullspec: user.fullspec(),
             reason,
         };
         for channel in self.channels.values_mut() {
@@ -853,11 +853,14 @@ impl ServerState {
         }
 
         let message = server_to_client::Message::Nick {
-            previous_user_fullspec: &user.fullspec(),
+            #[allow(clippy::unnecessary_to_owned)]  // we cannot use a reference as we will modify
+                                                    // the nick, and we want to keep the previous
+                                                    // fullspec
+            previous_user_fullspec: &user.fullspec().to_string(),
             nickname: new_nick,
         };
 
-        user.nickname = new_nick.to_string();
+        user.change_nickname(new_nick);
 
         let mut users = HashSet::new();
         users.insert(user_id);
@@ -923,7 +926,7 @@ impl ServerStateInner {
         match obj {
             LookupResult::Channel(channel_name, channel) => {
                 let message = server_to_client::Message::PrivMsg {
-                    from_user: &user.fullspec(),
+                    from_user: user.fullspec(),
                     target: channel_name.as_ref(),
                     content,
                 };
@@ -939,7 +942,7 @@ impl ServerStateInner {
             }
             LookupResult::RegisteredUser(target_user) => {
                 let message = server_to_client::Message::PrivMsg {
-                    from_user: &user.fullspec(),
+                    from_user: user.fullspec(),
                     target,
                     content,
                 };
@@ -1000,7 +1003,7 @@ impl ServerStateInner {
                 }
 
                 let message = server_to_client::Message::PrivMsg {
-                    from_user: &user.fullspec(),
+                    from_user: user.fullspec(),
                     target: channel_name.as_ref(),
                     content,
                 };
@@ -1014,7 +1017,7 @@ impl ServerStateInner {
             }
             LookupResult::RegisteredUser(target_user) => {
                 let message = server_to_client::Message::Notice {
-                    from_user: &user.fullspec(),
+                    from_user: user.fullspec(),
                     target,
                     content,
                 };
@@ -1164,7 +1167,7 @@ impl ServerStateInner {
                 if *cur_target_mode != new_target_mode {
                     *cur_target_mode = new_target_mode;
                     let message = server_to_client::Message::Mode {
-                        user_fullspec: &user.fullspec(),
+                        user_fullspec: user.fullspec(),
                         target: channel_name,
                         modechar,
                         param: Some(target),
@@ -1191,7 +1194,7 @@ impl ServerStateInner {
             channel.mode = new_channel_mode;
 
             let message = server_to_client::Message::Mode {
-                user_fullspec: &user.fullspec(),
+                user_fullspec: user.fullspec(),
                 target: channel_name,
                 modechar,
                 param: None,
@@ -1255,7 +1258,7 @@ impl ServerStateInner {
         channel.topic.from_nickname.clone_from(&user.nickname);
 
         let message = &server_to_client::Message::Topic {
-            user_fullspec: &user.fullspec(),
+            user_fullspec: user.fullspec(),
             channel: channel_name,
             topic: &channel.topic,
         };
@@ -1329,7 +1332,7 @@ impl ServerStateInner {
     fn user_registers(&mut self, user: RegisteredUser) {
         let message = server_to_client::Message::Welcome {
             nickname: &user.nickname,
-            user_fullspec: &user.fullspec(),
+            user_fullspec: user.fullspec(),
             welcome_config: &self.welcome_config,
         };
         user.send(&message, &self.message_context);

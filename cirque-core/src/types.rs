@@ -22,6 +22,8 @@ pub struct RegisteredUser {
     pub(crate) username: String,
     pub(crate) realname: Vec<u8>,
     pub(crate) away_message: Option<Vec<u8>>,
+    fullspec: String,
+    hostname: &'static str,
     mailbox: Mailbox,
 }
 
@@ -31,20 +33,20 @@ impl RegisteredUser {
     }
 
     pub(crate) fn shown_hostname(&self) -> &str {
-        "hidden"
+        self.hostname
     }
 
-    pub(crate) fn fullspec(&self) -> String {
-        format!(
-            "{}!{}@{}",
-            self.nickname,
-            self.username,
-            self.shown_hostname()
-        )
+    pub(crate) fn fullspec(&self) -> &str {
+        &self.fullspec
     }
 
     pub fn is_away(&self) -> bool {
         self.away_message.is_some()
+    }
+
+    pub(crate) fn change_nickname(&mut self, new_nick: &str) {
+        self.nickname = new_nick.to_string();
+        self.fullspec = format!("{}!{}@{}", self.nickname, self.username, self.hostname);
     }
 }
 
@@ -90,14 +92,23 @@ impl From<RegisteringUser> for RegisteredUser {
     fn from(value: RegisteringUser) -> Self {
         // we assert that the registration is valid, so the unwraps are fine
         assert!(value.is_ready());
+
+        #[allow(clippy::unwrap_used)]
+        let nickname = value.nickname.unwrap();
+        #[allow(clippy::unwrap_used)]
+        let username = value.username.unwrap();
+        let hostname = "hidden";
+
+        let fullspec = format!("{}!{}@{}", nickname, username, hostname);
+
         Self {
             user_id: value.user_id,
-            #[allow(clippy::unwrap_used)]
-            nickname: value.nickname.unwrap(),
-            #[allow(clippy::unwrap_used)]
-            username: value.username.unwrap(),
+            nickname,
+            username,
             realname: value.realname.unwrap_or_default(),
             away_message: None,
+            fullspec,
+            hostname,
             mailbox: value.mailbox,
         }
     }
