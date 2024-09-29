@@ -54,8 +54,14 @@ impl Session {
                         message_throttler.maybe_slow_down().await;
                     }
                 },
-                Some(msg) = rx.recv() => {
-                    if self.stream.write_all(&msg).await.is_err() {
+                msg = rx.recv() => {
+                    if let Some(msg) = msg {
+                        if self.stream.write_all(&msg).await.is_err() {
+                            break;
+                        }
+                    } else {
+                        // mailbox sender was closed, probably because of
+                        // RegisteringUser/RegisteredUser was dropped.
                         break;
                     }
                 }
@@ -66,6 +72,8 @@ impl Session {
         }
 
         server_state.dispose_state(state);
+        // close the mailbox, we don't want to receive any more messages at this point
+        rx.close();
 
         // handle the disconnection gracefully by sending remaining
         // messages (in case the client asked a QUIT for example)

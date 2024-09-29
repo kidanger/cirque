@@ -20,6 +20,10 @@ impl Mailbox {
     }
 
     pub(crate) fn ingest(&self, message: &server_to_client::Message<'_>, context: &MessageContext) {
+        if self.sender.is_closed() {
+            return;
+        }
+
         let mut mw = MessageWriter { mailbox: self };
         message.write_to(&mut mw, context);
     }
@@ -37,6 +41,10 @@ impl MailboxSink {
 
     pub fn try_recv(&mut self) -> Result<SerializedMessage, TryRecvError> {
         self.receiver.try_recv()
+    }
+
+    pub fn close(&mut self) {
+        self.receiver.close();
     }
 }
 
