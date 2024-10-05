@@ -26,6 +26,11 @@
         packages = {
           default = naersk'.buildPackage {
             src = ./.;
+            name = "cirque";
+            version = "1.0.0";
+            cargoBuildOptions = x: x ++ ["--package" "cirque"];
+            cargoTestOptions = x: x ++ [];
+            doCheck = true;
           };
         };
 
