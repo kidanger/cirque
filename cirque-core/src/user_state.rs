@@ -32,10 +32,6 @@ impl RegisteringState {
         };
 
         match message {
-            client_to_server::Message::Cap => {
-                // ignore for now
-                UserState::Registering(self)
-            }
             client_to_server::Message::Pass(password) => {
                 server_state.ruser_uses_password(self, password)
             }
@@ -149,7 +145,6 @@ impl RegisteredState {
             }
 
             // weird behaviors from the client:
-            client_to_server::Message::Cap => UserState::Registered(self),
             client_to_server::Message::User(_, _) => UserState::Registered(self),
             client_to_server::Message::Pass(_) => UserState::Registered(self),
         }

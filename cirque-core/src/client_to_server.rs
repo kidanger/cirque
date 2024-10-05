@@ -24,7 +24,6 @@ pub(crate) struct ListOption {
 
 #[derive(Debug)]
 pub(crate) enum Message<'m> {
-    Cap,
     Nick(&'m str),
     User(&'m str, &'m [u8]),
     Pass(&'m [u8]),
@@ -85,13 +84,6 @@ fn optstr<'m, 'a: 'm>(
             command: command.as_bytes(),
         })?;
     opt.ok_or(MessageDecodingError::NotEnoughParameters { command })
-}
-
-fn handle_cap<'m>(
-    _message: cirque_parser::Message<'m>,
-    _command: &'m str,
-) -> Result<Message<'m>, MessageDecodingError<'m>> {
-    Ok(Message::Cap)
 }
 
 fn handle_user<'m>(
@@ -409,7 +401,6 @@ type Handler = for<'m> fn(
 ) -> Result<Message<'m>, MessageDecodingError<'m>>;
 
 static REGISTRY: phf::Map<unicase::UniCase<&str>, Handler> = phf::phf_map! {
-    UniCase::ascii("CAP") => handle_cap,
     UniCase::ascii("USER") => handle_user,
     UniCase::ascii("NICK") => handle_nick,
     UniCase::ascii("PASS") => handle_pass,
