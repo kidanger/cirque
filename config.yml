@@ -1,0 +1,25 @@
+server_name: cirque
+
+# server password
+# If not set, anyone can connect to the server (not recommended)
+password: change-me
+
+address: "[::]"
+port: 6679
+
+# Optional: if not set, the server uses plain-text TCP (not recommended)
+tls:
+  cert: "./path.cert"
+  key: "./path.key"
+
+# Time in seconds before dropping unresponding clients
+# If not set, disables the timeout feature
+timeout: 60
+
+# Default channel mode when a new channel is created (a user joins a non existing channel)
+default_channel_mode: n
+
+# multiline MOTD
+motd: |
+  Welcome!
+  Welcome

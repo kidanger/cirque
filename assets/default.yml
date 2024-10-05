@@ -1,7 +1,0 @@
-server_name: IRC-server
-address: "[::]"
-port: 6679
-tls:
-  cert: "path"
-  key: "path"
-default_channel_mode: n

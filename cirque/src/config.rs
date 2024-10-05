@@ -122,7 +122,7 @@ mod tests {
 
     fn default_yaml_path() -> Result<PathBuf, anyhow::Error> {
         let workspace_path = env!("CARGO_MANIFEST_DIR");
-        Ok(PathBuf::from_str(workspace_path)?.join("../assets/default.yml"))
+        Ok(PathBuf::from_str(workspace_path)?.join("../config.yml"))
     }
 
     #[test]
