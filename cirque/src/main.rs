@@ -26,7 +26,7 @@ fn launch_server(
         .as_ref()
         .map(|m| m.lines().map(|l| l.as_bytes().to_vec()).collect());
     server_state.set_motd(motd);
-    server_state.set_default_channel_mode(&config.default_channel_mode.unwrap_or_default());
+    server_state.set_default_channel_mode(&config.default_channel_mode);
     server_state.set_timeout(config.timeout);
 
     log::info!("config loaded");
