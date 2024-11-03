@@ -2,28 +2,19 @@ use cirque_core::ServerState;
 
 use crate::connection_validator::ConnectionValidator;
 use crate::listener::Listener;
-use crate::session::Session;
-use crate::transport::AnyStream;
+use crate::session::run_session;
+use crate::stream::Stream;
 
-fn handle_client(server_state: ServerState, stream: std::io::Result<AnyStream>) {
-    let fut = async move {
-        // wait until we are in the async task to throw the error
-        let mut stream = stream?;
-
-        // enable the following to ease debugging:
-        if false {
-            stream = stream.with_debug();
+fn handle_client(server_state: ServerState, stream: std::io::Result<impl Stream + 'static>) {
+    let stream = match stream {
+        Ok(stream) => stream,
+        Err(err) => {
+            log::error!("error during acceptation with error: {err:#}");
+            return;
         }
-
-        Session::init(stream).run(server_state).await;
-        anyhow::Ok(())
     };
 
-    tokio::spawn(async move {
-        if let Err(err) = fut.await {
-            log::error!("session closed with error: {err:#}");
-        }
-    });
+    tokio::spawn(run_session(stream, server_state));
 }
 
 pub async fn run_server(

@@ -9,13 +9,16 @@ use tokio_rustls::{
     TlsAcceptor,
 };
 
-use crate::{connection_validator::ConnectionValidator, transport::AnyStream};
+use crate::connection_validator::ConnectionValidator;
+use crate::stream::Stream;
 
 pub trait Listener {
+    type Stream: Stream + 'static;
+
     fn accept(
         &self,
         validator: &mut (impl ConnectionValidator + Send),
-    ) -> impl std::future::Future<Output = std::io::Result<AnyStream>> + Send;
+    ) -> impl std::future::Future<Output = std::io::Result<Self::Stream>> + Send;
 }
 
 pub struct TCPListener {
@@ -42,14 +45,16 @@ impl TCPListener {
 }
 
 impl Listener for TCPListener {
+    type Stream = tokio::net::TcpStream;
+
     async fn accept(
         &self,
         validator: &mut (impl ConnectionValidator + Send),
-    ) -> std::io::Result<AnyStream> {
+    ) -> std::io::Result<Self::Stream> {
         let (stream, peer_addr) = self.listener.accept().await?;
         validator.validate(peer_addr)?;
         stream.set_nodelay(true)?;
-        Ok(AnyStream::new(stream))
+        Ok(stream)
     }
 }
 
@@ -79,13 +84,15 @@ impl TLSListener {
 }
 
 impl Listener for TLSListener {
+    type Stream = tokio_rustls::server::TlsStream<tokio::net::TcpStream>;
+
     async fn accept(
         &self,
         validator: &mut (impl ConnectionValidator + Send),
-    ) -> std::io::Result<AnyStream> {
+    ) -> std::io::Result<Self::Stream> {
         let (stream, peer_addr) = self.listener.accept().await?;
         validator.validate(peer_addr)?;
         let stream = self.acceptor.accept(stream).await?;
-        Ok(AnyStream::new(stream))
+        Ok(stream)
     }
 }

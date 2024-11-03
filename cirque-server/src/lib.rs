@@ -3,7 +3,7 @@ mod listener;
 mod message_throttler;
 mod server;
 mod session;
-mod transport;
+mod stream;
 
 pub use connection_validator::{AcceptAll, ConnectionLimiter, ConnectionValidator};
 pub use listener::TCPListener;
