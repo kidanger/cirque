@@ -1,17 +1,10 @@
+/// Note: Source (used for server-to-server or server-to-client communications) is not handled.
 use smallvec::SmallVec;
 
 mod parser;
 mod stream;
 
 pub use crate::stream::{LendingIterator, ParsingError, StreamParser};
-
-/// Note: Server sources (used for server-to-server communications) are not handled.
-#[derive(Debug, PartialEq, Eq)]
-pub struct Source<'s> {
-    nickname: &'s [u8],
-    user: Option<&'s [u8]>,
-    host: Option<&'s [u8]>,
-}
 
 pub type Command = [u8];
 pub type Parameters<'a> = SmallVec<[&'a [u8]; 15]>;
@@ -21,16 +14,11 @@ pub type Parameters<'a> = SmallVec<[&'a [u8]; 15]>;
 ///
 #[derive(Debug)]
 pub struct Message<'m> {
-    source: Option<Source<'m>>,
     command: &'m Command,
     parameters: Parameters<'m>,
 }
 
 impl<'m> Message<'m> {
-    pub fn source(&self) -> &Option<Source<'m>> {
-        &self.source
-    }
-
     pub fn command(&self) -> &'m Command {
         self.command
     }
