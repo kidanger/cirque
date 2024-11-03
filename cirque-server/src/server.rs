@@ -3,7 +3,6 @@ use cirque_core::ServerState;
 use crate::connection_validator::ConnectionValidator;
 use crate::session::Session;
 use crate::transport::{AnyStream, Listener};
-use crate::AnyListener;
 
 fn handle_client(server_state: ServerState, stream: std::io::Result<AnyStream>) {
     let fut = async move {
@@ -27,7 +26,7 @@ fn handle_client(server_state: ServerState, stream: std::io::Result<AnyStream>) 
 }
 
 pub async fn run_server(
-    listener: AnyListener,
+    listener: impl Listener,
     server_state: ServerState,
     mut connection_validator: impl ConnectionValidator + Send,
 ) -> ! {

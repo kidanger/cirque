@@ -7,7 +7,7 @@ use tokio::select;
 
 use cirque_core::ServerState;
 use cirque_server::{run_server, ConnectionLimiter};
-use cirque_server::{AnyListener, TCPListener, TLSListener};
+use cirque_server::{TCPListener, TLSListener};
 
 mod config;
 
@@ -55,16 +55,14 @@ fn launch_server(
         };
 
         let listener = TLSListener::try_new(&config.address, config.port, certs, private_key)?;
-        tokio::task::spawn(async move {
-            let listener = AnyListener::Tls(listener);
-            run_server(listener, server_state, connection_limiter).await
-        })
+        tokio::task::spawn(
+            async move { run_server(listener, server_state, connection_limiter).await },
+        )
     } else {
         let listener = TCPListener::try_new(&config.address, config.port)?;
-        tokio::task::spawn(async move {
-            let listener = AnyListener::Tcp(listener);
-            run_server(listener, server_state, connection_limiter).await
-        })
+        tokio::task::spawn(
+            async move { run_server(listener, server_state, connection_limiter).await },
+        )
     };
 
     Ok(future)

@@ -164,20 +164,3 @@ impl Listener for TLSListener {
         Ok(AnyStream::new(stream))
     }
 }
-
-pub enum AnyListener {
-    Tls(TLSListener),
-    Tcp(TCPListener),
-}
-
-impl Listener for AnyListener {
-    async fn accept(
-        &self,
-        validator: &mut (impl ConnectionValidator + Send),
-    ) -> std::io::Result<AnyStream> {
-        match self {
-            AnyListener::Tls(l) => l.accept(validator).await,
-            AnyListener::Tcp(l) => l.accept(validator).await,
-        }
-    }
-}
