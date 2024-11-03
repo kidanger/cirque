@@ -1,8 +1,9 @@
 use cirque_core::ServerState;
 
 use crate::connection_validator::ConnectionValidator;
+use crate::listener::Listener;
 use crate::session::Session;
-use crate::transport::{AnyStream, Listener};
+use crate::transport::AnyStream;
 
 fn handle_client(server_state: ServerState, stream: std::io::Result<AnyStream>) {
     let fut = async move {
