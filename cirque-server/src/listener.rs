@@ -1,98 +1,152 @@
-use std::sync::Arc;
+use std::net::SocketAddr;
 
-use tokio::net::TcpListener;
-use tokio_rustls::{
-    rustls::{
-        self,
-        pki_types::{CertificateDer, PrivateKeyDer},
-    },
-    TlsAcceptor,
-};
-
-use crate::connection_validator::ConnectionValidator;
 use crate::stream::Stream;
 
+pub use tcp::TCPListener;
+pub use tls::TLSListener;
+
+pub trait ConnectingStream {
+    type Stream: Stream;
+
+    fn handshake(self) -> impl std::future::Future<Output = std::io::Result<Self::Stream>> + Send;
+
+    fn peer_addr(&self) -> SocketAddr;
+}
+
 pub trait Listener {
-    type Stream: Stream + 'static;
+    type ConnectingStream: ConnectingStream + Send + 'static;
 
     fn accept(
         &self,
-        validator: &mut (impl ConnectionValidator + Send),
-    ) -> impl std::future::Future<Output = std::io::Result<Self::Stream>> + Send;
+    ) -> impl std::future::Future<Output = std::io::Result<Self::ConnectingStream>> + Send;
 }
 
-pub struct TCPListener {
-    listener: TcpListener,
-}
+mod tcp {
+    use tokio::net::TcpListener;
 
-/// Bind a TCP socket from the std:: to be blocking (this function is not async),
-/// then convert to a tokio:: listener for future use.
-/// It has to be called within a tokio runtime with IO enabled.
-fn bind_tcp_socket(addr: &str) -> std::io::Result<TcpListener> {
-    let listener = std::net::TcpListener::bind(addr)?;
-    listener.set_nonblocking(true)?;
-    TcpListener::from_std(listener)
-}
+    use super::{ConnectingStream, Listener};
 
-impl TCPListener {
-    pub fn try_new(address: &str, port: u16) -> anyhow::Result<Self> {
-        let addr = format!("{address}:{port}");
-        let listener = bind_tcp_socket(&addr)?;
+    /// Bind a TCP socket from the std:: to be blocking (this function is not async),
+    /// then convert to a tokio:: listener for future use.
+    /// It has to be called within a tokio runtime with IO enabled.
+    pub(crate) fn bind_tcp_socket(addr: &str) -> std::io::Result<TcpListener> {
+        let listener = std::net::TcpListener::bind(addr)?;
+        listener.set_nonblocking(true)?;
+        TcpListener::from_std(listener)
+    }
 
-        log::info!("listening on {addr} (TCP without TLS)");
-        Ok(Self { listener })
+    pub struct TCPConnectingStream {
+        stream: tokio::net::TcpStream,
+        peer_addr: std::net::SocketAddr,
+    }
+
+    impl ConnectingStream for TCPConnectingStream {
+        type Stream = tokio::net::TcpStream;
+
+        async fn handshake(self) -> std::io::Result<Self::Stream> {
+            Ok(self.stream)
+        }
+
+        fn peer_addr(&self) -> std::net::SocketAddr {
+            self.peer_addr
+        }
+    }
+
+    pub struct TCPListener {
+        listener: TcpListener,
+    }
+
+    impl TCPListener {
+        pub fn try_new(address: &str, port: u16) -> anyhow::Result<Self> {
+            let addr = format!("{address}:{port}");
+            let listener = bind_tcp_socket(&addr)?;
+
+            log::info!("listening on {addr} (TCP without TLS)");
+            Ok(Self { listener })
+        }
+    }
+
+    impl Listener for TCPListener {
+        type ConnectingStream = TCPConnectingStream;
+
+        async fn accept(&self) -> std::io::Result<Self::ConnectingStream> {
+            let (stream, peer_addr) = self.listener.accept().await?;
+            stream.set_nodelay(true)?;
+
+            Ok(TCPConnectingStream { stream, peer_addr })
+        }
     }
 }
 
-impl Listener for TCPListener {
-    type Stream = tokio::net::TcpStream;
+mod tls {
+    use tokio::net::TcpListener;
 
-    async fn accept(
-        &self,
-        validator: &mut (impl ConnectionValidator + Send),
-    ) -> std::io::Result<Self::Stream> {
-        let (stream, peer_addr) = self.listener.accept().await?;
-        validator.validate(peer_addr)?;
-        stream.set_nodelay(true)?;
-        Ok(stream)
+    use tokio_rustls::{
+        rustls::{
+            self,
+            pki_types::{CertificateDer, PrivateKeyDer},
+        },
+        TlsAcceptor,
+    };
+
+    use super::tcp::bind_tcp_socket;
+    use super::{ConnectingStream, Listener};
+
+    pub struct TLSConnectingStream {
+        stream: tokio::net::TcpStream,
+        peer_addr: std::net::SocketAddr,
+        acceptor: TlsAcceptor,
     }
-}
 
-pub struct TLSListener {
-    listener: TcpListener,
-    acceptor: TlsAcceptor,
-}
+    impl ConnectingStream for TLSConnectingStream {
+        type Stream = tokio_rustls::server::TlsStream<tokio::net::TcpStream>;
 
-impl TLSListener {
-    pub fn try_new(
-        address: &str,
-        port: u16,
-        certs: Vec<CertificateDer<'static>>,
-        private_key: PrivateKeyDer<'static>,
-    ) -> anyhow::Result<Self> {
-        let config = rustls::ServerConfig::builder()
-            .with_no_client_auth()
-            .with_single_cert(certs, private_key)?;
+        async fn handshake(self) -> std::io::Result<Self::Stream> {
+            let stream = self.acceptor.accept(self.stream).await?;
+            Ok(stream)
+        }
 
-        let addr = format!("{address}:{port}");
-        let listener = bind_tcp_socket(&addr)?;
-        let acceptor = TlsAcceptor::from(Arc::new(config));
-
-        log::info!("listening on {addr} (TCP with TLS)");
-        Ok(Self { listener, acceptor })
+        fn peer_addr(&self) -> std::net::SocketAddr {
+            self.peer_addr
+        }
     }
-}
 
-impl Listener for TLSListener {
-    type Stream = tokio_rustls::server::TlsStream<tokio::net::TcpStream>;
+    pub struct TLSListener {
+        listener: TcpListener,
+        acceptor: TlsAcceptor,
+    }
 
-    async fn accept(
-        &self,
-        validator: &mut (impl ConnectionValidator + Send),
-    ) -> std::io::Result<Self::Stream> {
-        let (stream, peer_addr) = self.listener.accept().await?;
-        validator.validate(peer_addr)?;
-        let stream = self.acceptor.accept(stream).await?;
-        Ok(stream)
+    impl TLSListener {
+        pub fn try_new(
+            address: &str,
+            port: u16,
+            certs: Vec<CertificateDer<'static>>,
+            private_key: PrivateKeyDer<'static>,
+        ) -> anyhow::Result<Self> {
+            let config = rustls::ServerConfig::builder()
+                .with_no_client_auth()
+                .with_single_cert(certs, private_key)?;
+
+            let addr = format!("{address}:{port}");
+            let listener = bind_tcp_socket(&addr)?;
+            let acceptor = TlsAcceptor::from(std::sync::Arc::new(config));
+
+            log::info!("listening on {addr} (TCP with TLS)");
+            Ok(Self { listener, acceptor })
+        }
+    }
+
+    impl Listener for TLSListener {
+        type ConnectingStream = TLSConnectingStream;
+
+        async fn accept(&self) -> std::io::Result<Self::ConnectingStream> {
+            let (stream, peer_addr) = self.listener.accept().await?;
+
+            Ok(TLSConnectingStream {
+                stream,
+                peer_addr,
+                acceptor: self.acceptor.clone(),
+            })
+        }
     }
 }
