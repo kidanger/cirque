@@ -7,7 +7,7 @@ edition = "2021"
 [dependencies]
 tokio = { version = "1.39.0",features = ["rt-multi-thread", "macros", "net", "signal", "sync"] }
 uuid = { version = "1.10.0", features = ["v4"] }
-thiserror = "1.0.63"
+thiserror = "2.0.0"
 decancer = { version = "3.2.4", default-features = false, features = [] }
 parking_lot = "0.12.3"
 log = "0.4.22"
