@@ -816,4 +816,14 @@ impl Message<'_> {
 
         Some(())
     }
+
+    pub(crate) fn is_important(&self) -> bool {
+        matches!(
+            self,
+            Message::Join { .. }
+                | Message::PrivMsg { .. }
+                | Message::Notice { .. }
+                | Message::Part { .. }
+        )
+    }
 }

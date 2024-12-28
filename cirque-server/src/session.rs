@@ -46,7 +46,7 @@ pub(crate) async fn run_session(mut stream: impl Stream, server_state: ServerSta
             },
             msg = rx.recv() => {
                 if let Some(msg) = msg {
-                    if stream.write_all(&msg).await.is_err() {
+                    if stream.write_all(msg.bytes()).await.is_err() {
                         break;
                     }
                 } else {
@@ -70,7 +70,7 @@ pub(crate) async fn run_session(mut stream: impl Stream, server_state: ServerSta
     let buf = {
         let mut buf = std::io::Cursor::new(Vec::<u8>::new());
         while let Ok(msg) = rx.try_recv() {
-            let _ = std::io::Write::write_all(&mut buf, &msg);
+            let _ = std::io::Write::write_all(&mut buf, msg.bytes());
         }
         buf.into_inner()
     };

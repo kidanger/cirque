@@ -1810,7 +1810,7 @@ mod tests {
     fn collect_mail(sink: &mut MailboxSink) -> Vec<Vec<u8>> {
         let mut messages = vec![];
         while let Ok(m) = sink.try_recv() {
-            messages.push(m);
+            messages.push(m.bytes().to_vec());
         }
         messages
     }
