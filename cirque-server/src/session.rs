@@ -13,7 +13,8 @@ pub(crate) async fn run_session(mut stream: impl Stream, server_state: ServerSta
     let mut message_throttler = MessageThrottler::new(server_state.get_messages_per_second_limit());
 
     let timeout = server_state
-        .get_timeout()
+        .get_timeout_config()
+        .map(|config| config.reduced_timeout)
         .unwrap_or_else(|| Duration::from_secs(99999));
     let mut timer = tokio::time::interval(timeout.div_f32(4.));
 
@@ -48,6 +49,9 @@ pub(crate) async fn run_session(mut stream: impl Stream, server_state: ServerSta
                 if let Some(msg) = msg {
                     if stream.write_all(msg.bytes()).await.is_err() {
                         break;
+                    }
+                    if msg.is_important() {
+                        state.aggressively_reduce_timeout();
                     }
                 } else {
                     // mailbox sender was closed, probably because of

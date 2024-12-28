@@ -1,7 +1,7 @@
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use parking_lot::RwLock;
 
@@ -16,6 +16,7 @@ use crate::types::{
     Channel, ChannelMode, ChannelUserMode, RegisteredUser, RegisteringUser, UserID, WelcomeConfig,
 };
 use crate::user_state::{RegisteredState, RegisteringState, UserState};
+use crate::TimeoutConfig;
 
 enum LookupResult<'r> {
     Channel(&'r ChannelID, &'r Channel),
@@ -103,7 +104,7 @@ struct ServerStateInner {
     default_channel_mode: ChannelMode,
     message_context: MessageContext,
     messages_per_second_limit: u32,
-    timeout: Option<Duration>,
+    timeout_config: Option<TimeoutConfig>,
 }
 
 impl ServerState {
@@ -112,7 +113,7 @@ impl ServerState {
         welcome_config: &WelcomeConfig,
         motd: Option<Vec<Vec<u8>>>,
         password: Option<Vec<u8>>,
-        timeout: Option<Duration>,
+        timeout_config: Option<TimeoutConfig>,
     ) -> Self {
         let sv = ServerStateInner {
             users: Default::default(),
@@ -128,7 +129,7 @@ impl ServerState {
             },
             default_channel_mode: Default::default(),
             messages_per_second_limit: 10,
-            timeout,
+            timeout_config,
         };
         ServerState(Arc::new(RwLock::new(sv)))
     }
@@ -229,7 +230,8 @@ impl ServerState {
         let mailbox_capacity = 128;
         let (user, rx) = RegisteringUser::new(mailbox_capacity);
         let user_id = user.user_id;
-        let state = UserState::Registering(RegisteringState::new(user_id, sv.timeout));
+        let state =
+            UserState::Registering(RegisteringState::new(user_id, sv.timeout_config.clone()));
 
         sv.registering_users.insert(user.user_id, user);
 
@@ -270,14 +272,14 @@ impl ServerState {
         sv.default_channel_mode = default_channel_mode.clone();
     }
 
-    pub fn get_timeout(&self) -> Option<Duration> {
+    pub fn get_timeout_config(&self) -> Option<TimeoutConfig> {
         let sv = self.0.read();
-        sv.timeout
+        sv.timeout_config.clone()
     }
 
-    pub fn set_timeout(&self, timeout: Option<Duration>) {
+    pub fn set_timeout_config(&self, timeout: Option<TimeoutConfig>) {
         let mut sv = self.0.write();
-        sv.timeout = timeout;
+        sv.timeout_config = timeout;
     }
 }
 

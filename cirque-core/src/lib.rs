@@ -10,6 +10,7 @@ mod types;
 mod user_state;
 
 pub use server_state::ServerState;
+pub use timeout::TimeoutConfig;
 pub use types::ChannelMode;
 pub use types::UserID;
 pub use types::WelcomeConfig;

@@ -14,7 +14,11 @@ tls:
 
 # Time in seconds before dropping unresponding clients
 # If not set, disables the timeout feature
-timeout: 60
+timeout:
+  base: 60
+  # Used when someone is talking in a channel or in private.
+  # The timeout for other clients gets reduced to this value.
+  reduced: 10
 
 # Default channel mode when a new channel is created (a user joins a non existing channel)
 default_channel_mode: n

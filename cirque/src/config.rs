@@ -18,6 +18,23 @@ pub struct TlsConfig {
 
 #[serde_with::serde_as]
 #[derive(Debug, Deserialize)]
+struct TimeoutConfig {
+    #[serde_as(as = "serde_with::DurationSeconds<u64>")]
+    pub base: Duration,
+    #[serde_as(as = "serde_with::DurationSeconds<u64>")]
+    pub reduced: Duration,
+}
+
+impl From<&TimeoutConfig> for cirque_core::TimeoutConfig {
+    fn from(val: &TimeoutConfig) -> Self {
+        cirque_core::TimeoutConfig {
+            base_timeout: val.base,
+            reduced_timeout: val.reduced,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
 pub struct Config {
     pub server_name: String,
     pub password: Option<String>,
@@ -28,8 +45,7 @@ pub struct Config {
     pub tls_config: Option<TlsConfig>,
     #[serde(deserialize_with = "deserialize_channel_mode")]
     pub default_channel_mode: ChannelMode,
-    #[serde_as(as = "Option<serde_with::DurationSeconds<u64>>")]
-    pub timeout: Option<Duration>,
+    timeout: Option<TimeoutConfig>,
 }
 
 fn deserialize_channel_mode<'de, D>(value: D) -> Result<ChannelMode, D::Error>
@@ -66,6 +82,14 @@ impl Config {
         let string = std::fs::read_to_string(path)
             .with_context(|| format!("reading config file {path:?}"))?;
         Config::load_from_str(string.as_str())
+    }
+}
+
+impl Config {
+    pub fn timeout_config(&self) -> Option<cirque_core::TimeoutConfig> {
+        self.timeout
+            .as_ref()
+            .map(|tc| -> cirque_core::TimeoutConfig { tc.into() })
     }
 }
 

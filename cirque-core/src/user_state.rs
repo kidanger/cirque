@@ -1,9 +1,9 @@
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
-use crate::client_to_server;
 use crate::server_state::ServerState;
 use crate::timeout::{PingState, PingStatus};
 use crate::types::UserID;
+use crate::{client_to_server, TimeoutConfig};
 
 #[derive(Debug)]
 pub struct RegisteringState {
@@ -12,10 +12,10 @@ pub struct RegisteringState {
 }
 
 impl RegisteringState {
-    pub(crate) fn new(user_id: UserID, timeout: Option<Duration>) -> Self {
+    pub(crate) fn new(user_id: UserID, timeout_config: Option<TimeoutConfig>) -> Self {
         Self {
             user_id,
-            ping_state: PingState::new(Instant::now(), timeout),
+            ping_state: PingState::new(Instant::now(), timeout_config),
         }
     }
 
@@ -177,6 +177,20 @@ impl UserState {
             Self::Registered(session_state) => session_state.handle_message(server_state, message),
             Self::Disconnected => self,
         }
+    }
+
+    /// Typically used when important messages are being sent to the user (privmsg, notice, ...).
+    /// This lowers the timeout, such that pings are sent more frequently, and the user is kicked
+    /// if it does not responds.
+    pub fn aggressively_reduce_timeout(&mut self) {
+        let ping_state = match self {
+            UserState::Registering(state) => &mut state.ping_state,
+            UserState::Registered(state) => &mut state.ping_state,
+            UserState::Disconnected => {
+                return;
+            }
+        };
+        ping_state.aggressively_reduce_timeout();
     }
 
     pub fn check_timeout(self, server_state: &ServerState) -> Self {
