@@ -20,8 +20,6 @@ impl TimeoutConfig {
 pub(crate) struct Ping {
     token: Vec<u8>,
     at: Instant,
-    /// specific timeout duration for this ping
-    timeout: Duration,
 }
 
 #[derive(Debug, PartialEq)]
@@ -57,19 +55,9 @@ impl PingState {
     }
 
     pub(crate) fn on_send_ping(&mut self, token: &[u8], now: Instant) {
-        let Some(timeout_config) = &self.timeout_config else {
-            // shouldn't happen, we dont't call on_send_ping if the PingState.current_timeout is
-            // None
-            return;
-        };
-
-        let reduced_rate = self.timeout_reduction_tokens != 0;
-        let cur_timeout = timeout_config.get_timeout(reduced_rate);
-
         self.last_sent = Some(Ping {
             token: token.to_vec(),
             at: now,
-            timeout: cur_timeout,
         });
     }
 
@@ -111,7 +99,7 @@ impl PingState {
             (None, Some(_)) => PingStatus::NeedToSend,
             (Some(ping), None) => {
                 let elapsed = now - ping.at;
-                if elapsed < ping.timeout {
+                if elapsed < cur_timeout {
                     PingStatus::AllGood
                 } else {
                     PingStatus::Timeout(elapsed)
@@ -120,7 +108,7 @@ impl PingState {
             (Some(ping), Some(pong)) => {
                 let elapsed_sent = now - ping.at;
 
-                if elapsed_sent < ping.timeout {
+                if elapsed_sent < cur_timeout {
                     // not yet timed-out, nothing to do
                     return PingStatus::AllGood;
                 }
@@ -210,13 +198,16 @@ mod tests {
 
         state.aggressively_reduce_timeout();
 
-        // the ping was not yet with a reduced timeout
+        // the ping was not sent under a reduced timeout, but now we want to timeout quickly
         let now = now + Duration::from_secs(8);
-        assert_eq!(state.check_status(now), PingStatus::AllGood);
+        assert_eq!(
+            state.check_status(now),
+            PingStatus::Timeout(Duration::from_secs(8))
+        );
         state.on_receive_pong(b"token2".to_vec());
-        let now = now + Duration::from_secs(1);
-        assert_eq!(state.check_status(now), PingStatus::AllGood);
 
+        let now = now + Duration::from_secs(1);
+        assert_eq!(state.check_status(now), PingStatus::NeedToSend);
         let now = now + Duration::from_secs(2);
         assert_eq!(state.check_status(now), PingStatus::NeedToSend);
         state.on_send_ping(b"token3", now);
