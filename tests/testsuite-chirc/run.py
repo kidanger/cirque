@@ -1,5 +1,5 @@
-import subprocess
 import os
+import subprocess
 
 if __name__ == "__main__":
     subprocess.run(["cargo", "build", "--bin", "chirc-compat"], check=True)
@@ -18,7 +18,11 @@ if __name__ == "__main__":
     if os.name == "nt":
         file_name = file_name + ".exe"
 
-    exe_path = os.path.join("target", "debug", file_name)
+    exe_path = os.path.join(
+        os.environ.get("CARGO_TARGET_DIR", os.path.join(os.getcwd(), "target")),
+        "debug",
+        file_name,
+    )
     for tu_type in [
         "ROBUST",
         "BASIC_CONNECTION",
@@ -34,7 +38,6 @@ if __name__ == "__main__":
         "LIST_VOICE",
         "MODES_TOPIC",
         "BASIC_CHANNEL_OPERATOR",
-
         # disabled:
         # "ERR_UNKNOWN",
         #   because WHOWAS is not handled or something like that
@@ -55,7 +58,6 @@ if __name__ == "__main__":
         #   or do not agree on the exact error code
         # "CONNECTION_REGISTRATION",
         #   requires basic WHOWAS
-
         # ROBUST?
     ]:
         subprocess.run(
