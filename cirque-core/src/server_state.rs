@@ -5,6 +5,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use parking_lot::RwLock;
 
+use crate::TimeoutConfig;
 use crate::client_to_server::{ListFilter, ListOperation, ListOption, MessageDecodingError};
 use crate::error::ServerStateError;
 use crate::message_writer::MailboxSink;
@@ -16,7 +17,6 @@ use crate::types::{
     Channel, ChannelMode, ChannelUserMode, RegisteredUser, RegisteringUser, UserID, WelcomeConfig,
 };
 use crate::user_state::{RegisteredState, RegisteringState, UserState};
-use crate::TimeoutConfig;
 
 enum LookupResult<'r> {
     Channel(&'r ChannelID, &'r Channel),

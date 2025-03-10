@@ -1,7 +1,7 @@
 use crate::{
+    WelcomeConfig,
     message_writer::MessageWriter,
     types::{ChannelMode, ChannelUserMode, Topic},
-    WelcomeConfig,
 };
 
 #[derive(Debug, Clone)]

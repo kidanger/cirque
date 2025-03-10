@@ -129,7 +129,7 @@ impl PingState {
 mod tests {
     use std::time::{Duration, Instant};
 
-    use crate::{timeout::PingStatus, TimeoutConfig};
+    use crate::{TimeoutConfig, timeout::PingStatus};
 
     use super::PingState;
 

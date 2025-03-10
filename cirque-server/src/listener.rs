@@ -82,11 +82,11 @@ mod tls {
     use tokio::net::TcpListener;
 
     use tokio_rustls::{
+        TlsAcceptor,
         rustls::{
             self,
             pki_types::{CertificateDer, PrivateKeyDer},
         },
-        TlsAcceptor,
     };
 
     use super::tcp::bind_tcp_socket;

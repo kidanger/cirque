@@ -1,6 +1,7 @@
 use nom::{
+    IResult,
     branch::alt,
-    bytes::complete::{tag, take_till, take_while, take_while1, take_while_m_n},
+    bytes::complete::{tag, take_till, take_while, take_while_m_n, take_while1},
     character::{
         complete::{char, space0},
         is_alphabetic, is_digit,
@@ -8,7 +9,6 @@ use nom::{
     combinator::{peek, rest},
     multi::many0,
     sequence::preceded,
-    IResult,
 };
 
 use crate::{Command, Message, Parameters};

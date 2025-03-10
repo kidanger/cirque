@@ -6,7 +6,7 @@ use anyhow::Context;
 use tokio::select;
 
 use cirque_core::ServerState;
-use cirque_server::{run_server, ConnectionLimiter};
+use cirque_server::{ConnectionLimiter, run_server};
 use cirque_server::{TCPListener, TLSListener};
 
 mod config;

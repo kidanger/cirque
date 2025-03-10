@@ -3,7 +3,7 @@ use std::time::Instant;
 use crate::server_state::ServerState;
 use crate::timeout::{PingState, PingStatus};
 use crate::types::UserID;
-use crate::{client_to_server, TimeoutConfig};
+use crate::{TimeoutConfig, client_to_server};
 
 #[derive(Debug)]
 pub struct RegisteringState {

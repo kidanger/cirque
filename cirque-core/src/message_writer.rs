@@ -1,6 +1,6 @@
 use std::{io::Write, marker::PhantomData};
 
-use tokio::sync::mpsc::{error::TryRecvError, Permit, Receiver, Sender};
+use tokio::sync::mpsc::{Permit, Receiver, Sender, error::TryRecvError};
 
 use crate::server_to_client::{self, MessageContext};
 

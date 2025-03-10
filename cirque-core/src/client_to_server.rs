@@ -334,10 +334,9 @@ fn handle_away<'m>(
     message: cirque_parser::Message<'m>,
     _command: &'m str,
 ) -> Result<Message<'m>, MessageDecodingError<'m>> {
-    let away_message =
-        message
-            .first_parameter()
-            .and_then(|m| if m.is_empty() { None } else { Some(m) });
+    let away_message = message
+        .first_parameter()
+        .and_then(|m| if m.is_empty() { None } else { Some(m) });
     Ok(Message::Away(away_message))
 }
 
