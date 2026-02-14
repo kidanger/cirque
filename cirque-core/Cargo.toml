@@ -14,7 +14,7 @@ log = "0.4.22"
 subtle = "2.6.1"
 
 cirque-parser = { path = "../cirque-parser" }
-phf = { version = "0.11.2", features = ["macros", "unicase"] }
+phf = { version = "0.13.1", features = ["macros", "unicase"] }
 unicase = "2.7.0"
 
 [lints]
