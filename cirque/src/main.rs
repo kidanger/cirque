@@ -1,5 +1,3 @@
-use std::fs::File;
-use std::io::BufReader;
 use std::{path::PathBuf, str::FromStr};
 
 use anyhow::Context;
@@ -8,6 +6,8 @@ use tokio::select;
 use cirque_core::ServerState;
 use cirque_server::{ConnectionLimiter, run_server};
 use cirque_server::{TCPListener, TLSListener};
+use tokio_rustls::rustls::pki_types::pem::PemObject;
+use tokio_rustls::rustls::pki_types::{CertificateDer, PrivateKeyDer};
 
 mod config;
 
@@ -33,26 +33,22 @@ fn launch_server(
 
     let connection_limiter = ConnectionLimiter::default();
     let future = if let Some(tls_config) = config.tls_config {
-        let certs = {
-            let mut file = File::open(&tls_config.cert_file_path).with_context(|| {
-                format!(
-                    "cannot open certificate file {:?}",
-                    &tls_config.cert_file_path
-                )
-            })?;
-            rustls_pemfile::certs(&mut BufReader::new(&mut file)).collect::<Result<Vec<_>, _>>()?
-        };
+        let certs = CertificateDer::pem_file_iter(&tls_config.cert_file_path)
+            .context(format!(
+                "reading certificate file  {:?}",
+                &tls_config.cert_file_path
+            ))?
+            .collect::<Result<Vec<_>, _>>()
+            .context(format!(
+                "reading certificate file  {:?}",
+                &tls_config.cert_file_path
+            ))?;
 
-        let private_key = {
-            let mut file = File::open(&tls_config.private_key_file_path).with_context(|| {
-                format!(
-                    "cannot open private key file {:?}",
-                    &tls_config.private_key_file_path
-                )
-            })?;
-            rustls_pemfile::private_key(&mut BufReader::new(&mut file))?
-                .ok_or_else(|| anyhow::anyhow!("cannot load private key"))?
-        };
+        let private_key =
+            PrivateKeyDer::from_pem_file(&tls_config.private_key_file_path).context(format!(
+                "reading private key file {:?}",
+                &tls_config.private_key_file_path
+            ))?;
 
         let listener = TLSListener::try_new(&config.address, config.port, certs, private_key)?;
         tokio::task::spawn(
